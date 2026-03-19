@@ -1,0 +1,385 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+## Project Overview
+
+**Minerva** is a web-based trading research copilot designed to automate swing-trading research with a cost-efficient, multi-market architecture.
+
+**Key Principles:**
+- **Adaptation, not creation:** All workflow logic adapts skills from the [claude-trading-skills](reference/claude-trading-skills) repository
+- **Cost-first architecture:** Python screener runs first for quantitative filtering; LLMs handle only shortlisted candidates
+- **Multi-market support:** US markets (S&P 500, Nasdaq) and TASE (Tel Aviv Stock Exchange) from day one
+- **Market-aware defaults:** USD for US, ILS for TASE; validates currency/precision in all outputs
+- **Deterministic over agentic:** Structured validation and contracts before LLM-dependent nodes
+
+**In Scope (v1):**
+- Manual scanning and research execution
+- Swing trading strategies (short-to-medium term horizons)
+- Structured JSON output with explicit entry/exit rules and position sizing
+- Web dashboard for candidate review and ticket management
+- Single-user, unauthenticated access
+
+**Out of Scope (v1):**
+- Multi-user collaboration, broker execution, real-time streaming, scheduled scans
+- Long-term investing, dividends, options trading, statistical arbitrage
+- Authoring proprietary strategies independent of source skill adaptation
+
+See [MinervaPRD.md](MinervaPRD.md) for full product specification.
+
+## Architecture
+
+### System Overview
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                     Frontend (Vercel)                       │
+│                      Next.js 15+ (App Router)               │
+│  ├─ Candidate Queue & Workflow Controls                     │
+│  ├─ Ticket Viewer (Research Results)                        │
+│  ├─ Watchlist & Portfolio Management                        │
+│  └─ Market History Charts (lightweight-charts)              │
+└─────────────────────────────────────────────────────────────┘
+                           ↕ HTTP/REST
+┌─────────────────────────────────────────────────────────────┐
+│                  Backend (Railway)                          │
+│                   FastAPI (Python 3.x)                      │
+│  ├─ Scanner Service: symbol filtering (yfinance + pandas)   │
+│  ├─ Workflow Engine: LangGraph-style orchestration         │
+│  ├─ Research Client: OpenRouter API connector              │
+│  ├─ Risk/Sizing: position validation & guardrails          │
+│  └─ Market Data: OHLC history endpoint                     │
+└─────────────────────────────────────────────────────────────┘
+                           ↕ SQL/TCP
+┌─────────────────────────────────────────────────────────────┐
+│            Persistence Layer (Supabase PostgreSQL)          │
+│  ├─ Candidates (filtered symbols, screening metadata)      │
+│  ├─ Research Tickets (structured outputs, entry/exit)      │
+│  ├─ Watchlist Items (user-tracked symbols)                 │
+│  └─ Scan History (runs, timestamps, results cache)         │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### Key Component Responsibilities
+
+**Frontend (`src/` or similar):**
+- React components with App Router for UI layout
+- API integration layer (request normalization, error handling)
+- Chart rendering with lightweight-charts library
+- Market data normalization: `time -> ts` (epoch ms), OHLC values
+- Execution level overlays (support, resistance, checkpoint lines on charts)
+
+**Backend (`backend/` or similar):**
+- **Scanner:** Fetches symbols via yfinance, applies screening triggers, returns candidates
+- **Workflow Engine:** Executes adapted source-skill playbooks (see "Workflow Adaptation" below)
+  - Deterministic validation nodes run first
+  - LLM nodes follow for shortlisted candidates only
+  - Output contracts enforced (JSON validated before persistence)
+- **Research Client:** OpenRouter API integration
+  - Retry policy: exponential backoff for 429/5xx/timeout
+  - Strict JSON response format enforcement
+  - Cache deduplication to avoid repeated LLM calls
+- **Risk & Sizing:** Computes share quantity, validates max-risk constraints
+- **Market Data Endpoint:** `/market/history` returns OHLC candles in frontend-normalized format
+
+### Workflow Adaptation (From claude-trading-skills)
+
+All research workflows adapt skills from the reference repository:
+
+1. **Source Mapping:** Identify applicable skills from `reference/claude-trading-skills/skills/`
+   - For swing trading: focus on Technical Analyst, Theme Detector, Uptrend Analyzer, Breadth Chart Analyst
+   - Exclude: options-strategy-advisor, kanchi-dividend-*, institutional-flow-tracker, macro-regime-detector
+2. **Prompt Porting:** Extract SKILL.md instructions and references, adapt to OpenRouter API format
+3. **Guardrails:** Add deterministic validation before LLM invocation (e.g., is symbol valid? is price in expected range?)
+4. **Output Schema:** Define JSON contract for each workflow step (validated before database commit)
+5. **Market Localization:** For US vs TASE branching, include market-specific defaults (USD/ILS, trading hours, sector mapping)
+
+### Technology Stack
+
+| Component | Technology | Notes |
+|-----------|-----------|-------|
+| **Frontend Hosting** | Vercel | Git-triggered deployments, preview URLs |
+| **Frontend Framework** | Next.js 15+ (App Router) | React 18+, TypeScript recommended |
+| **Frontend Charts** | lightweight-charts | OHLC rendering, pan/zoom/fullscreen support |
+| **Backend Hosting** | Railway | Managed Python runtime, PostgreSQL connection pooling |
+| **Backend Framework** | FastAPI | Python 3.9+, async/await ready |
+| **Data Fetching** | yfinance, pandas | Screener and market data ingestion |
+| **LLM Integration** | OpenRouter API | Multi-model support, retry middleware |
+| **Database** | Supabase PostgreSQL | Row-level security, vector extensions optional |
+| **Workflow Orchestration** | LangGraph-compatible design | Deterministic state graph execution |
+
+## Development Setup
+
+### Prerequisites
+
+- **Node.js** 18+ (for Next.js frontend)
+- **Python** 3.9+ (for FastAPI backend)
+- **Git** (for cloning the reference repository)
+- **Environment Variables:**
+  - `OPENROUTER_API_KEY`: OpenRouter API token
+  - `RESEARCH_MODEL`: Model ID (e.g., `openai/gpt-4-turbo`)
+  - `RESEARCH_OPENROUTER_RETRY_COUNT`: Number of retries (default: 3)
+  - `RESEARCH_OPENROUTER_BACKOFF_SECONDS`: Backoff interval (default: 2)
+  - `SUPABASE_URL`, `SUPABASE_KEY`: Database connection
+  - `DATABASE_URL`: PostgreSQL connection string for backend
+  - Additional Vercel, Railway, and Supabase secrets as per deployment config
+
+### Project Structure (Target Layout)
+
+```
+Minerva/
+├── CLAUDE.md                  # This file
+├── MinervaPRD.md              # Product specification
+├── reference/                 # Source material (read-only)
+│   └── claude-trading-skills/
+│
+├── frontend/                  # Next.js application
+│   ├── src/
+│   │   ├── app/               # App Router pages/layouts
+│   │   ├── components/        # React components
+│   │   ├── lib/               # API client, utilities
+│   │   └── ...
+│   ├── package.json
+│   ├── tsconfig.json
+│   ├── next.config.js
+│   └── ...
+│
+├── backend/                   # FastAPI application
+│   ├── app/
+│   │   ├── main.py            # FastAPI app initialization
+│   │   ├── routers/           # API route handlers (scanner, research, market)
+│   │   ├── services/          # Core services (workflow, openrouter, risk)
+│   │   ├── models/            # Pydantic schemas and database models
+│   │   ├── config.py          # Configuration and environment
+│   │   └── utils/             # Helpers (validation, formatting, market utils)
+│   ├── tests/                 # Unit/integration tests
+│   ├── scripts/               # Utility scripts for dev/ops
+│   ├── requirements.txt
+│   ├── pyproject.toml
+│   └── ...
+│
+└── docs/                      # Optional: deployment guides, API specs
+    ├── ARCHITECTURE.md
+    ├── API.md
+    └── ...
+```
+
+### Frontend Setup
+
+```bash
+cd frontend
+npm install
+npm run dev          # Start dev server (http://localhost:3000)
+npm run build        # Production build
+npm run lint         # ESLint check
+npm run format       # Prettier formatting
+npm test             # Run tests (jest or vitest)
+```
+
+### Backend Setup
+
+```bash
+cd backend
+
+# Create virtual environment
+python3 -m venv venv
+source venv/bin/activate  # Windows: venv\Scripts\activate
+
+# Install dependencies
+pip install -r requirements.txt
+pip install -e ".[dev]"   # With dev dependencies
+
+# Run development server
+uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+
+# Run tests
+pytest
+
+# Run linting
+ruff check .
+
+# Format code
+ruff format .
+```
+
+### Database Setup
+
+1. Create Supabase project
+2. Initialize schema using migration scripts (TBD)
+3. Set `SUPABASE_URL`, `SUPABASE_KEY` environment variables
+4. Ensure connection pooling is configured for Railway backend
+
+## Key Development Patterns
+
+### Workflow Definition
+
+When adapting a skill into a backend workflow:
+
+1. **Create workflow state schema** (Pydantic model):
+   - Input: candidate symbol, market, context
+   - Intermediate: analysis stages, LLM responses
+   - Output: structured ticket (entry, exit, risk metrics)
+
+2. **Define nodes** (deterministic first, LLM last):
+   ```
+   Input Validation → Data Fetch → Deterministic Filters → LLM Analysis → Output Validation → Persist
+   ```
+
+3. **Load skill references** only when needed (minimize token usage)
+
+4. **Enforce output contracts** before any database write
+
+### Output Schema Example (Research Ticket)
+
+```json
+{
+  "id": "uuid",
+  "symbol": "AAPL",
+  "market": "US",
+  "created_at": "2026-03-19T10:00:00Z",
+  "workflow_type": "technical-swing",
+  "analysis": {
+    "entry_price": 190.50,
+    "entry_rationale": "...",
+    "stop_loss": 185.00,
+    "target": 200.00,
+    "position_size": 100,
+    "max_risk_usd": 550.00,
+    "bullish_probability": 0.72,
+    "key_triggers": ["breakout above resistance", "volume confirmation"],
+    "caveats": []
+  },
+  "source_skill": "technical-analyst",
+  "research_model": "openai/gpt-4-turbo",
+  "status": "approved"
+}
+```
+
+### API Response Normalization
+
+Frontend market data endpoint (`/market/history`) normalizes OHLC:
+
+```python
+# Backend response format
+{
+  "symbol": "AAPL",
+  "market": "US",
+  "candles": [
+    {"ts": 1710867600000, "open": 190.2, "high": 191.5, "low": 190.0, "close": 191.0},
+    ...
+  ],
+  "execution_levels": {
+    "entry": 190.5,
+    "stop": 185.0,
+    "target": 200.0,
+    "checkpoint": null
+  }
+}
+```
+
+### Testing Strategy
+
+- **Unit tests** for validator functions, market data parsers, risk calculators
+- **Integration tests** for full workflow execution (mock OpenRouter API)
+- **E2E tests** for critical paths (scan → research → ticket creation)
+- Do not test external API calls directly; mock with fixtures
+
+## Common Development Tasks
+
+### Adding a New Research Workflow
+
+1. Identify source skill from `reference/claude-trading-skills/skills/<skill-name>/`
+2. Create workflow state schema in `backend/app/models/workflows/`
+3. Create workflow handler in `backend/app/services/workflows/`
+4. Add endpoint to `backend/app/routers/research.py`
+5. Add integration test covering happy path + error cases
+6. Update frontend to expose workflow in UI dropdown
+
+### Debugging LLM Responses
+
+- Check `RESEARCH_MODEL` environment variable matches intended model
+- Enable debug logging in OpenRouter client to see raw request/response
+- Cache responses: check if duplicate prompts are being sent (check deduplication logic)
+- Validate response against Pydantic schema; log validation errors before rejection
+
+### Testing Screener Logic
+
+1. Run scanner with a small test set (e.g., top 10 S&P 500 symbols)
+2. Log candidate counts and exclusion reasons
+3. Verify market-specific filters (US vs TASE) are applied correctly
+4. Check that invalid symbols are gracefully skipped
+
+## Deployment
+
+### Frontend Deployment (Vercel)
+
+- Automatic deployments from `main` branch
+- Preview deployments for all PRs
+- Configure build settings in `vercel.json`:
+  ```json
+  {
+    "buildCommand": "cd frontend && npm run build",
+    "outputDirectory": "frontend/.next"
+  }
+  ```
+- Set environment variables in Vercel dashboard (`NEXT_PUBLIC_API_URL`, etc.)
+
+### Backend Deployment (Railway)
+
+- Connect GitHub repository
+- Railway auto-detects Python + FastAPI
+- Configure environment variables in Railway dashboard
+- Database connection: Railway PostgreSQL addon
+- Domain: Railway auto-assigns; configure custom domain if needed
+
+### Environment Parity
+
+- Ensure `.env.local` matches deployed environment variables
+- Use `.env.example` to document required variables (never commit actual secrets)
+- Supabase keys: staging/prod separation recommended for v1+
+
+## Important Guardrails
+
+### Market Validation
+
+- **US symbols:** Validate against S&P 500 / Nasdaq ticker list
+- **TASE symbols:** Validate against TASE ticker format (Hebrew letters or common acronyms)
+- Reject invalid symbols before screening starts
+- Log rejection reasons for debugging
+
+### Risk Management
+
+- Position size calculation: use consistent formula (% of account, Kelly criterion, or fixed risk)
+- Max risk validation: reject trades exceeding risk threshold
+- Stop loss: always required; target: always required
+- Cash/margin impact: surface explicitly in UI
+
+### Workflow Determinism
+
+- No LLM calls during data fetching or validation
+- Reproducible screening: same inputs → same candidate list
+- Cached outputs: tag with model version and generation timestamp
+- Deduplication: check if same symbol + market + analysis type was recently run
+
+### Market Hours & Data Freshness
+
+- Document trading hours for US (9:30-16:00 ET) and TASE (9:15-17:00 IL)
+- Warn if market data is more than N hours stale
+- Frontend displays last-updated timestamp on charts
+
+## References & Resources
+
+- **Product Spec:** [MinervaPRD.md](MinervaPRD.md)
+- **Source Skills:** [reference/claude-trading-skills](reference/claude-trading-skills) – read CLAUDE.md and skill-specific SKILL.md files
+- **Frontend Framework:** [Next.js Docs](https://nextjs.org/docs)
+- **Backend Framework:** [FastAPI Docs](https://fastapi.tiangolo.com)
+- **Database:** [Supabase Docs](https://supabase.com/docs)
+- **Charts:** [lightweight-charts API](https://tradingview.github.io/lightweight-charts/)
+- **LLM API:** [OpenRouter Documentation](https://openrouter.ai/docs)
+
+## Notes for Future Instances
+
+- If the project structure deviates from the target layout, update the "Project Structure" section above
+- When adapting new skills, always verify they are **swing-trading focused** (not dividends, options, long-term, or statistical arb)
+- Keep market-aware defaults (USD/ILS, trading hours) consistent across all workflow nodes
+- Prefer deterministic validation early and LLM calls late in the pipeline
