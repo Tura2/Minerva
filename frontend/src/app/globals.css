@@ -1,9 +1,10 @@
-@import url("https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@300;400;500;600&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=Assistant:wght@300;400;500;600;700&display=swap");
 
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
+/* ── Dark mode (default) ─────────────────────────────────────────── */
 :root {
   --bg: #09090b;
   --surface: #18181b;
@@ -21,8 +22,31 @@
   --red-dim: #7f1d1d;
   --blue: #3b82f6;
   --blue-dim: #1e3a5f;
+  --shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
 }
 
+/* ── Light mode ──────────────────────────────────────────────────── */
+.light {
+  --bg: #f4f4f5;
+  --surface: #ffffff;
+  --surface-2: #f4f4f5;
+  --border: #d4d4d8;
+  --border-subtle: #e4e4e7;
+  --text: #09090b;
+  --text-muted: #52525b;
+  --text-dim: #a1a1aa;
+  --accent: #d97706;
+  --accent-dim: #fef3c7;
+  --green: #16a34a;
+  --green-dim: #dcfce7;
+  --red: #dc2626;
+  --red-dim: #fee2e2;
+  --blue: #2563eb;
+  --blue-dim: #dbeafe;
+  --shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+/* ── Base reset ──────────────────────────────────────────────────── */
 * {
   margin: 0;
   padding: 0;
@@ -32,9 +56,10 @@
 html {
   background-color: var(--bg);
   color: var(--text);
-  font-family: "IBM Plex Sans", -apple-system, BlinkMacSystemFont, sans-serif;
+  font-family: "Assistant", -apple-system, BlinkMacSystemFont, sans-serif;
   font-size: 14px;
   -webkit-font-smoothing: antialiased;
+  transition: background-color 0.15s ease, color 0.15s ease;
 }
 
 body {
@@ -42,12 +67,12 @@ body {
   min-height: 100vh;
 }
 
-/* Monospaced number utility */
+/* ── Monospace numbers ───────────────────────────────────────────── */
 .font-mono {
   font-family: "IBM Plex Mono", "Fira Code", "Cascadia Code", monospace;
 }
 
-/* Custom scrollbar */
+/* ── Custom scrollbar ────────────────────────────────────────────── */
 ::-webkit-scrollbar {
   width: 5px;
   height: 5px;
@@ -60,46 +85,43 @@ body {
   border-radius: 2px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #52525b;
+  background: var(--text-dim);
 }
 
-/* Price color utilities */
-.text-bullish {
-  color: var(--green);
-}
-.text-bearish {
-  color: var(--red);
-}
-.text-neutral {
-  color: var(--text-muted);
-}
-
-/* Animated skeleton */
+/* ── Skeleton shimmer ────────────────────────────────────────────── */
 @keyframes shimmer {
-  0% {
-    background-position: -200% 0;
-  }
-  100% {
-    background-position: 200% 0;
-  }
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
 }
 
 .skeleton {
-  background: linear-gradient(90deg, var(--surface) 25%, var(--surface-2) 50%, var(--surface) 75%);
+  background: linear-gradient(
+    90deg,
+    var(--surface) 25%,
+    var(--surface-2) 50%,
+    var(--surface) 75%
+  );
   background-size: 200% 100%;
   animation: shimmer 1.4s infinite;
   border-radius: 3px;
 }
 
-/* Subtle grid background for panels */
-.grid-bg {
-  background-image: linear-gradient(var(--border-subtle) 1px, transparent 1px),
-    linear-gradient(to right, var(--border-subtle) 1px, transparent 1px);
-  background-size: 24px 24px;
-}
-
-/* Focus ring */
+/* ── Focus ring ──────────────────────────────────────────────────── */
 *:focus-visible {
   outline: 1px solid var(--accent);
   outline-offset: 1px;
+}
+
+/* ── Input base ──────────────────────────────────────────────────── */
+input,
+select,
+textarea {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  color: var(--text);
+  font-family: inherit;
+}
+
+input::placeholder {
+  color: var(--text-dim);
 }

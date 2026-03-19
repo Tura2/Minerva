@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { getCandidates, runScan } from "@/lib/api/scanner";
 import type { Candidate, Market } from "@/lib/types";
 import { ApiError } from "@/lib/types";
@@ -21,19 +21,58 @@ function formatDate(iso: string) {
   });
 }
 
+function ScoreBar({ score }: { score: number }) {
+  const color = score >= 70 ? "var(--green)" : score >= 50 ? "var(--accent)" : "var(--text-dim)";
+  return (
+    <div className="flex items-center gap-2">
+      <div
+        className="flex-1 rounded-full overflow-hidden"
+        style={{ height: 4, background: "var(--surface-2)" }}
+      >
+        <div style={{ width: `${score}%`, height: "100%", background: color, borderRadius: 9999 }} />
+      </div>
+      <span className="font-mono text-xs w-8 text-right" style={{ color }}>
+        {score.toFixed(0)}
+      </span>
+    </div>
+  );
+}
+
+// ── Toast banner ─────────────────────────────────────────────────────────────
+function Banner({ msg, onDismiss }: { msg: { text: string; ok: boolean }; onDismiss: () => void }) {
+  return (
+    <div
+      className="flex items-center justify-between px-4 py-2 text-sm rounded"
+      style={{
+        background: msg.ok ? "var(--green-dim)" : "var(--red-dim)",
+        border: `1px solid ${msg.ok ? "var(--green)" : "var(--red)"}`,
+        color: msg.ok ? "var(--green)" : "var(--red)",
+      }}
+    >
+      <span>{msg.text}</span>
+      <button onClick={onDismiss} style={{ background: "none", border: "none", color: "inherit", cursor: "pointer", fontSize: 16 }}>
+        ×
+      </button>
+    </div>
+  );
+}
+
+// ── Page ─────────────────────────────────────────────────────────────────────
 export default function CandidatesPage() {
   const [candidates, setCandidates] = useState<Candidate[]>([]);
   const [loading, setLoading] = useState(true);
   const [scanning, setScanning] = useState(false);
-  const [scanError, setScanError] = useState<string | null>(null);
+  const [banner, setBanner] = useState<{ text: string; ok: boolean } | null>(null);
   const [filterMarket, setFilterMarket] = useState<Market | "ALL">("ALL");
   const [scanMarket, setScanMarket] = useState<Market>("US");
 
+  // Single-symbol search
+  const [searchSymbol, setSearchSymbol] = useState("");
+  const [searchMarket, setSearchMarket] = useState<Market>("US");
+  const searchRef = useRef<HTMLInputElement>(null);
+
   // Research modal
-  const [researchTarget, setResearchTarget] = useState<{
-    symbol: string;
-    market: Market;
-  } | null>(null);
+  const [researchTarget, setResearchTarget] = useState<{ symbol: string; market: Market } | null>(null);
 
   async function loadCandidates(market?: Market) {
     try {
@@ -49,25 +88,56 @@ export default function CandidatesPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filterMarket]);
 
-  async function handleScan() {
+  // ── Watchlist scan ──────────────────────────────────────────────────────
+  async function handleWatchlistScan() {
     setScanning(true);
-    setScanError(null);
+    setBanner(null);
     try {
       const result = await runScan({ market: scanMarket, limit: 200 });
-      // Reload candidates after scan
       const fresh = await getCandidates(filterMarket === "ALL" ? undefined : filterMarket, 200);
       setCandidates(fresh);
-      setScanError(
-        `Scan complete — ${result.total_passed} of ${result.total_in_watchlist} symbols passed filters.`,
-      );
+      setBanner({
+        ok: true,
+        text: `Scan complete — ${result.total_passed} of ${result.total_in_watchlist} watchlist symbols passed.`,
+      });
     } catch (err) {
-      if (err instanceof ApiError) {
-        setScanError(
-          typeof err.detail === "string" ? err.detail : "Scan failed. Check backend logs.",
-        );
+      setBanner({
+        ok: false,
+        text: err instanceof ApiError && typeof err.detail === "string"
+          ? err.detail
+          : "Scan failed. Check backend logs.",
+      });
+    } finally {
+      setScanning(false);
+    }
+  }
+
+  // ── Single-symbol scan ──────────────────────────────────────────────────
+  async function handleSymbolScan(e: React.FormEvent) {
+    e.preventDefault();
+    const sym = searchSymbol.trim().toUpperCase();
+    if (!sym) return;
+
+    setScanning(true);
+    setBanner(null);
+    try {
+      const result = await runScan({ market: searchMarket, symbols: [sym], limit: 1 });
+      // Prepend result to current list (or show inline)
+      const fresh = await getCandidates(filterMarket === "ALL" ? undefined : filterMarket, 200);
+      setCandidates(fresh);
+      if (result.total_passed === 0) {
+        setBanner({ ok: false, text: `${sym} did not pass screening filters for ${searchMarket}.` });
       } else {
-        setScanError("Network error. Is the backend running?");
+        setBanner({ ok: true, text: `${sym} passed screening — added to candidates.` });
+        setSearchSymbol("");
       }
+    } catch (err) {
+      setBanner({
+        ok: false,
+        text: err instanceof ApiError && typeof err.detail === "string"
+          ? err.detail
+          : `Could not scan ${sym}. Is it a valid ticker?`,
+      });
     } finally {
       setScanning(false);
     }
@@ -77,7 +147,7 @@ export default function CandidatesPage() {
     filterMarket === "ALL" ? candidates : candidates.filter((c) => c.market === filterMarket);
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-5">
       {researchTarget && (
         <ResearchModal
           symbol={researchTarget.symbol}
@@ -87,69 +157,127 @@ export default function CandidatesPage() {
       )}
 
       {/* Header */}
-      <div className="flex items-start justify-between flex-wrap gap-4">
+      <div>
+        <h1 className="text-xl font-bold" style={{ color: "var(--text)" }}>
+          Candidates
+        </h1>
+        <p className="text-sm mt-0.5" style={{ color: "var(--text-dim)" }}>
+          {filtered.length} symbol{filtered.length !== 1 ? "s" : ""} passed screening
+        </p>
+      </div>
+
+      {/* Controls row */}
+      <div
+        className="p-4 space-y-4"
+        style={{
+          background: "var(--surface)",
+          border: "1px solid var(--border)",
+          borderRadius: "6px",
+          boxShadow: "var(--shadow)",
+        }}
+      >
+        {/* ── Single symbol search ── */}
         <div>
-          <h1
-            className="font-mono text-xl font-semibold tracking-wide"
-            style={{ color: "var(--text)" }}
-          >
-            Candidates
-          </h1>
-          <p className="text-sm mt-1" style={{ color: "var(--text-dim)" }}>
-            {filtered.length} symbol{filtered.length !== 1 ? "s" : ""} passed screening
+          <p className="text-xs font-semibold uppercase tracking-widest mb-2" style={{ color: "var(--text-dim)" }}>
+            Quick Scan — Single Symbol
           </p>
+          <form onSubmit={handleSymbolScan} className="flex gap-2 flex-wrap">
+            <div className="relative flex-1 min-w-48">
+              <span
+                className="absolute left-3 top-1/2 -translate-y-1/2 text-xs"
+                style={{ color: "var(--text-dim)" }}
+              >
+                🔍
+              </span>
+              <input
+                ref={searchRef}
+                value={searchSymbol}
+                onChange={(e) => setSearchSymbol(e.target.value.toUpperCase())}
+                placeholder="Enter ticker  e.g. NVDA"
+                maxLength={20}
+                className="w-full pl-8 pr-3 py-2 text-sm font-mono uppercase rounded-sm"
+                style={{
+                  background: "var(--surface-2)",
+                  border: "1px solid var(--border)",
+                  color: "var(--text)",
+                }}
+              />
+            </div>
+            <select
+              value={searchMarket}
+              onChange={(e) => setSearchMarket(e.target.value as Market)}
+              className="px-3 py-2 text-sm font-medium rounded-sm"
+              style={{
+                background: "var(--surface-2)",
+                border: "1px solid var(--border)",
+                color: "var(--text)",
+                cursor: "pointer",
+              }}
+            >
+              <option value="US">US</option>
+              <option value="TASE">TASE</option>
+            </select>
+            <button
+              type="submit"
+              disabled={scanning || !searchSymbol.trim()}
+              className="px-4 py-2 text-sm font-semibold transition-colors rounded-sm"
+              style={{
+                background: scanning || !searchSymbol.trim() ? "var(--surface-2)" : "var(--blue-dim)",
+                border: "1px solid var(--blue)",
+                color: scanning || !searchSymbol.trim() ? "var(--text-dim)" : "var(--blue)",
+                cursor: scanning || !searchSymbol.trim() ? "not-allowed" : "pointer",
+              }}
+            >
+              {scanning ? "Scanning…" : "Scan Symbol"}
+            </button>
+          </form>
         </div>
 
-        {/* Scan controls */}
-        <div className="flex items-center gap-2">
-          <select
-            value={scanMarket}
-            onChange={(e) => setScanMarket(e.target.value as Market)}
-            className="px-3 py-1.5 text-xs font-mono"
-            style={{
-              background: "var(--surface-2)",
-              border: "1px solid var(--border)",
-              borderRadius: "2px",
-              color: "var(--text)",
-              cursor: "pointer",
-            }}
-          >
-            <option value="US">US</option>
-            <option value="TASE">TASE</option>
-          </select>
+        {/* Divider */}
+        <div style={{ borderTop: "1px solid var(--border-subtle)" }} />
 
-          <button
-            onClick={handleScan}
-            disabled={scanning}
-            className="px-4 py-1.5 text-xs font-mono font-semibold uppercase tracking-wide transition-colors"
-            style={{
-              background: scanning ? "var(--surface-2)" : "var(--accent-dim)",
-              border: "1px solid var(--accent)",
-              borderRadius: "2px",
-              color: scanning ? "var(--text-dim)" : "var(--accent)",
-              cursor: scanning ? "not-allowed" : "pointer",
-            }}
-          >
-            {scanning ? "Scanning…" : "▶ Run Scan"}
-          </button>
+        {/* ── Watchlist scan ── */}
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-widest mb-2" style={{ color: "var(--text-dim)" }}>
+            Watchlist Scan — Full Universe
+          </p>
+          <div className="flex items-center gap-2 flex-wrap">
+            <select
+              value={scanMarket}
+              onChange={(e) => setScanMarket(e.target.value as Market)}
+              className="px-3 py-2 text-sm font-medium rounded-sm"
+              style={{
+                background: "var(--surface-2)",
+                border: "1px solid var(--border)",
+                color: "var(--text)",
+                cursor: "pointer",
+              }}
+            >
+              <option value="US">US Watchlist</option>
+              <option value="TASE">TASE Watchlist</option>
+            </select>
+            <button
+              onClick={handleWatchlistScan}
+              disabled={scanning}
+              className="px-4 py-2 text-sm font-semibold transition-colors rounded-sm"
+              style={{
+                background: scanning ? "var(--surface-2)" : "var(--accent-dim)",
+                border: "1px solid var(--accent)",
+                color: scanning ? "var(--text-dim)" : "var(--accent)",
+                cursor: scanning ? "not-allowed" : "pointer",
+              }}
+            >
+              {scanning ? "Scanning…" : "▶ Run Scan"}
+            </button>
+            <span className="text-xs" style={{ color: "var(--text-dim)" }}>
+              Scans all {scanMarket} symbols in your watchlist
+            </span>
+          </div>
         </div>
       </div>
 
-      {/* Scan result banner */}
-      {scanError && (
-        <div
-          className="px-4 py-2 text-xs font-mono rounded"
-          style={{
-            background: scanError.startsWith("Scan complete")
-              ? "var(--green-dim)"
-              : "var(--red-dim)",
-            border: `1px solid ${scanError.startsWith("Scan complete") ? "var(--green)" : "var(--red)"}`,
-            color: scanError.startsWith("Scan complete") ? "var(--green)" : "#fca5a5",
-          }}
-        >
-          {scanError}
-        </div>
-      )}
+      {/* Banner */}
+      {banner && <Banner msg={banner} onDismiss={() => setBanner(null)} />}
 
       {/* Market filter */}
       <div className="flex gap-1">
@@ -157,12 +285,12 @@ export default function CandidatesPage() {
           <button
             key={m}
             onClick={() => setFilterMarket(m)}
-            className="px-3 py-1.5 text-xs font-mono uppercase tracking-wide transition-colors"
+            className="px-3 py-1.5 text-xs font-semibold transition-colors"
             style={{
               background: filterMarket === m ? "var(--surface-2)" : "transparent",
               border: "1px solid",
               borderColor: filterMarket === m ? "var(--border)" : "transparent",
-              borderRadius: "2px",
+              borderRadius: "4px",
               color: filterMarket === m ? "var(--text)" : "var(--text-dim)",
               cursor: "pointer",
             }}
@@ -177,25 +305,26 @@ export default function CandidatesPage() {
         style={{
           background: "var(--surface)",
           border: "1px solid var(--border)",
-          borderRadius: "4px",
+          borderRadius: "6px",
           overflow: "hidden",
+          boxShadow: "var(--shadow)",
         }}
       >
         {/* Header */}
         <div
-          className="grid px-4 py-2 text-xs font-mono uppercase tracking-widest"
+          className="grid px-4 py-2 text-xs font-semibold uppercase tracking-widest"
           style={{
-            gridTemplateColumns: "80px 70px 100px 100px 80px 1fr 100px",
+            gridTemplateColumns: "80px 72px 90px 90px 1fr 130px 100px",
             borderBottom: "1px solid var(--border)",
             color: "var(--text-dim)",
           }}
         >
           <span>Symbol</span>
-          <span>Market</span>
+          <span>Mkt</span>
           <span className="text-right">Price</span>
           <span className="text-right">Volume</span>
-          <span className="text-right">Score</span>
-          <span className="pl-4">Screened</span>
+          <span className="pl-2">Score</span>
+          <span>Screened</span>
           <span className="text-right">Action</span>
         </div>
 
@@ -211,77 +340,57 @@ export default function CandidatesPage() {
               No candidates yet.
             </p>
             <p className="text-xs mt-1" style={{ color: "var(--text-dim)" }}>
-              Add symbols to your watchlist and run a scan.
+              Add symbols to your watchlist and run a scan, or search a single symbol above.
             </p>
           </div>
         ) : (
           filtered.map((c) => (
             <div
               key={c.id}
-              className="grid items-center px-4 py-3 hover:bg-zinc-800 transition-colors"
+              className="grid items-center px-4 py-3 transition-colors"
               style={{
-                gridTemplateColumns: "80px 70px 100px 100px 80px 1fr 100px",
+                gridTemplateColumns: "80px 72px 90px 90px 1fr 130px 100px",
                 borderBottom: "1px solid var(--border-subtle)",
               }}
             >
-              <span className="font-mono text-sm font-semibold" style={{ color: "var(--text)" }}>
+              <span className="font-bold text-sm" style={{ color: "var(--text)" }}>
                 {c.symbol}
               </span>
 
               <span
-                className="px-1.5 py-0.5 text-xs font-mono rounded w-fit"
+                className="px-1.5 py-0.5 text-xs font-semibold rounded w-fit"
                 style={{
                   background: c.market === "US" ? "var(--blue-dim)" : "var(--accent-dim)",
-                  color: c.market === "US" ? "#93c5fd" : "var(--accent)",
+                  color: c.market === "US" ? "var(--blue)" : "var(--accent)",
                 }}
               >
                 {c.market}
               </span>
 
-              <span
-                className="font-mono text-sm text-right"
-                style={{ color: "var(--text)" }}
-              >
-                {c.price.toFixed(2)}
+              <span className="font-mono text-sm text-right" style={{ color: "var(--text)" }}>
+                {c.price?.toFixed(2) ?? "—"}
               </span>
 
-              <span
-                className="font-mono text-xs text-right"
-                style={{ color: "var(--text-muted)" }}
-              >
-                {formatVolume(c.volume)}
+              <span className="font-mono text-xs text-right" style={{ color: "var(--text-muted)" }}>
+                {c.volume ? formatVolume(c.volume) : "—"}
               </span>
 
-              {/* Score bar */}
-              <div className="flex items-center justify-end gap-1.5">
-                <span
-                  className="font-mono text-xs"
-                  style={{
-                    color:
-                      c.score >= 70
-                        ? "var(--green)"
-                        : c.score >= 50
-                          ? "var(--accent)"
-                          : "var(--text-muted)",
-                  }}
-                >
-                  {c.score.toFixed(0)}
-                </span>
+              <div className="pl-2">
+                <ScoreBar score={c.score ?? 0} />
               </div>
 
-              <span className="pl-4 text-xs font-mono" style={{ color: "var(--text-dim)" }}>
+              <span className="text-xs" style={{ color: "var(--text-dim)" }}>
                 {formatDate(c.screened_at)}
               </span>
 
               <div className="flex justify-end">
                 <button
                   onClick={() => setResearchTarget({ symbol: c.symbol, market: c.market })}
-                  className="px-2 py-1 text-xs font-mono uppercase tracking-wide transition-colors"
+                  className="px-3 py-1 text-xs font-semibold transition-colors rounded-sm"
                   style={{
                     background: "var(--blue-dim)",
                     border: "1px solid var(--blue)",
-                    borderRadius: "2px",
-                    color: "#93c5fd",
+                    color: "var(--blue)",
                     cursor: "pointer",
                   }}
                 >

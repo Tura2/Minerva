@@ -1,5 +1,6 @@
-"""Market data router — OHLC history and symbol lists."""
+"""Market data router — OHLC history, quotes, and symbol lists."""
 
+import asyncio
 import yfinance as yf
 from fastapi import APIRouter, Query, HTTPException
 from pydantic import BaseModel
@@ -125,6 +126,67 @@ async def get_market_history(
         last_updated=datetime.now(timezone.utc).isoformat(),
         is_stale=is_stale,
     )
+
+
+class QuoteResponse(BaseModel):
+    symbol: str
+    market: str
+    price: float
+    change: float
+    change_pct: float
+    volume: Optional[float] = None
+    error: Optional[str] = None
+
+
+class BatchQuoteRequest(BaseModel):
+    symbols: list[str]
+    market: str
+
+
+def _fetch_quote_sync(symbol: str, market: str) -> dict:
+    """Fetch last price + day change for a symbol (synchronous, runs in thread)."""
+    yf_sym = _yf_symbol(symbol.upper(), market.upper())
+    try:
+        df = yf.Ticker(yf_sym).history(period="5d", interval="1d", auto_adjust=True)
+        if df.empty:
+            return {"symbol": symbol.upper(), "market": market.upper(), "error": "No data"}
+        price = round(float(df["Close"].iloc[-1]), 4)
+        prev_close = float(df["Close"].iloc[-2]) if len(df) >= 2 else price
+        change = round(price - prev_close, 4)
+        change_pct = round((change / prev_close * 100) if prev_close else 0.0, 2)
+        volume = float(df["Volume"].iloc[-1]) if df["Volume"].iloc[-1] else None
+        return {
+            "symbol": symbol.upper(),
+            "market": market.upper(),
+            "price": price,
+            "change": change,
+            "change_pct": change_pct,
+            "volume": volume,
+        }
+    except Exception as e:
+        return {"symbol": symbol.upper(), "market": market.upper(), "error": str(e)}
+
+
+@router.get("/quote", response_model=QuoteResponse)
+async def get_quote(
+    symbol: str = Query(...),
+    market: str = Query(...),
+):
+    """Return last price and day change for a single symbol."""
+    result = await asyncio.to_thread(_fetch_quote_sync, symbol, market.upper())
+    if result.get("error"):
+        raise HTTPException(status_code=404, detail=result["error"])
+    return result
+
+
+@router.post("/quotes", response_model=list[QuoteResponse])
+async def get_batch_quotes(req: BatchQuoteRequest):
+    """Return last price and day change for a list of symbols (max 30)."""
+    market = req.market.upper()
+    symbols = [s.upper() for s in req.symbols[:30]]
+    tasks = [asyncio.to_thread(_fetch_quote_sync, s, market) for s in symbols]
+    results = await asyncio.gather(*tasks)
+    return list(results)
 
 
 @router.get("/symbols/{market}")

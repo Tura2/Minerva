@@ -13,6 +13,7 @@ function toApiError(err: unknown): never {
 export interface ScanRequest {
   market: Market;
   limit?: number;
+  symbols?: string[];          // if set, scan these instead of watchlist
   min_price?: number | null;
   max_price?: number | null;
   min_volume?: number | null;

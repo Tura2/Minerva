@@ -16,6 +16,7 @@ scanner = ScannerService()
 class ScanRequest(BaseModel):
     market: str  # "US" or "TASE"
     limit: int = 50
+    symbols: Optional[list[str]] = None  # if set, scan these instead of watchlist
     min_price: Optional[float] = None
     max_price: Optional[float] = None
     min_volume: Optional[int] = None
@@ -55,13 +56,16 @@ async def run_scan(req: ScanRequest):
 
     db = get_db()
 
-    # 1. Load universe from watchlist
-    symbols = await scanner.load_symbols(market, db)
-    if not symbols:
-        raise HTTPException(
-            status_code=422,
-            detail=f"No symbols in watchlist for {market}. Add some via /watchlist first."
-        )
+    # 1. Resolve scan universe: explicit list or watchlist
+    if req.symbols:
+        symbols = [s.upper() for s in req.symbols]
+    else:
+        symbols = await scanner.load_symbols(market, db)
+        if not symbols:
+            raise HTTPException(
+                status_code=422,
+                detail=f"No symbols in watchlist for {market}. Add some via /watchlist first."
+            )
 
     # 2. Create scan_history record (running)
     scan_record = db.table("scan_history").insert({
