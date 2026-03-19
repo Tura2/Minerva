@@ -313,104 +313,6 @@ export default function TicketClient({ id }: { id: string }) {
         </div>
       </div>
 
-      {/* Stats row — Trade Levels | Position Sizing | Conviction */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
-        <Section title="Trade Levels">
-          <div className="grid grid-cols-3 gap-2">
-            <PriceStat label="Entry" value={`${sym}${ticket.entry_price.toFixed(2)}`} color="#3b82f6" />
-            <PriceStat label="Stop" value={`${sym}${ticket.stop_loss.toFixed(2)}`} color="var(--red)" />
-            <PriceStat label="Target" value={`${sym}${ticket.target.toFixed(2)}`} color="var(--green)" />
-          </div>
-        </Section>
-
-        <Section title="Position Sizing">
-          <div className="grid grid-cols-2 gap-2">
-            <PriceStat label="Shares" value={String(ticket.position_size)} />
-            <PriceStat label={`Max Risk (${ticket.currency})`} value={`${sym}${ticket.max_risk.toFixed(2)}`} color="var(--accent)" />
-            <PriceStat label="R/R Ratio" value={`${rr}:1`} />
-            <PriceStat label="Portfolio %" value={meta.max_risk_pct ? `${meta.max_risk_pct}%` : "—"} />
-          </div>
-        </Section>
-
-        <Section title="Conviction">
-          <div
-            className="p-4 space-y-3"
-            style={{
-              background: "var(--surface-2)",
-              border: "1px solid var(--border)",
-              borderRadius: "4px",
-            }}
-          >
-            <div className="flex items-center justify-between">
-              <span className="text-sm" style={{ color: "var(--text-muted)" }}>Bullish probability</span>
-              <span className="font-mono font-bold text-2xl" style={{ color: probColor }}>
-                {prob}%
-              </span>
-            </div>
-            <div className="h-2 rounded-full overflow-hidden" style={{ background: "var(--border)" }}>
-              <div
-                className="h-full rounded-full transition-all"
-                style={{ width: `${prob}%`, background: probColor }}
-              />
-            </div>
-            {meta.breadth_zone && (
-              <p className="text-xs" style={{ color: "var(--text-dim)" }}>
-                Breadth: {meta.breadth_zone}{meta.breadth_score ? ` (${meta.breadth_score.toFixed(1)})` : ""}
-              </p>
-            )}
-          </div>
-        </Section>
-      </div>
-
-      {/* Key Triggers + Caveats */}
-      {(ticket.key_triggers?.length > 0 || meta.caveats?.length > 0) && (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-          {ticket.key_triggers?.length > 0 && (
-            <Section title="Key Triggers">
-              <ul className="space-y-2">
-                {ticket.key_triggers.map((t, i) => (
-                  <li
-                    key={i}
-                    className="flex items-start gap-3 p-3"
-                    style={{
-                      background: "var(--surface-2)",
-                      border: "1px solid var(--border)",
-                      borderLeft: "3px solid var(--accent)",
-                      borderRadius: "4px",
-                    }}
-                  >
-                    <span className="font-mono text-base mt-0.5 shrink-0" style={{ color: "var(--accent)" }}>→</span>
-                    <span className="text-sm leading-relaxed" style={{ color: "var(--text)" }}>{t}</span>
-                  </li>
-                ))}
-              </ul>
-            </Section>
-          )}
-
-          {meta.caveats?.length > 0 && (
-            <Section title="Caveats">
-              <ul className="space-y-2">
-                {meta.caveats.map((c: string, i: number) => (
-                  <li
-                    key={i}
-                    className="flex items-start gap-3 p-3"
-                    style={{
-                      background: "var(--red-dim)",
-                      border: "1px solid var(--red)",
-                      borderLeft: "3px solid var(--red)",
-                      borderRadius: "4px",
-                    }}
-                  >
-                    <span className="font-mono text-base mt-0.5 shrink-0" style={{ color: "var(--red)" }}>⚠</span>
-                    <span className="text-sm leading-relaxed" style={{ color: "var(--text-muted)" }}>{c}</span>
-                  </li>
-                ))}
-              </ul>
-            </Section>
-          )}
-        </div>
-      )}
-
       {/* Full-width chart */}
       {!fsMode && (
         <div>
@@ -499,6 +401,104 @@ export default function TicketClient({ id }: { id: string }) {
         </div>
       )}
 
+      {/* Stats row — Trade Levels | Position Sizing | Conviction */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+        <Section title="Trade Levels">
+          <div className="grid grid-cols-3 gap-2">
+            <PriceStat label="Entry" value={`${sym}${ticket.entry_price.toFixed(2)}`} color="#3b82f6" />
+            <PriceStat label="Stop" value={`${sym}${ticket.stop_loss.toFixed(2)}`} color="var(--red)" />
+            <PriceStat label="Target" value={`${sym}${ticket.target.toFixed(2)}`} color="var(--green)" />
+          </div>
+        </Section>
+
+        <Section title="Position Sizing">
+          <div className="grid grid-cols-2 gap-2">
+            <PriceStat label="Shares" value={String(ticket.position_size)} />
+            <PriceStat label={`Max Risk (${ticket.currency})`} value={`${sym}${ticket.max_risk.toFixed(2)}`} color="var(--accent)" />
+            <PriceStat label="R/R Ratio" value={`${rr}:1`} />
+            <PriceStat label="Portfolio %" value={meta.max_risk_pct ? `${meta.max_risk_pct}%` : "—"} />
+          </div>
+        </Section>
+
+        <Section title="Conviction">
+          <div
+            className="p-4 space-y-3"
+            style={{
+              background: "var(--surface-2)",
+              border: "1px solid var(--border)",
+              borderRadius: "4px",
+            }}
+          >
+            <div className="flex items-center justify-between">
+              <span className="text-sm" style={{ color: "var(--text-muted)" }}>Bullish probability</span>
+              <span className="font-mono font-bold text-2xl" style={{ color: probColor }}>
+                {prob}%
+              </span>
+            </div>
+            <div className="h-2 rounded-full overflow-hidden" style={{ background: "var(--border)" }}>
+              <div
+                className="h-full rounded-full transition-all"
+                style={{ width: `${prob}%`, background: probColor }}
+              />
+            </div>
+            {meta.breadth_zone && (
+              <p className="text-xs" style={{ color: "var(--text-dim)" }}>
+                Breadth: {meta.breadth_zone}{meta.breadth_score ? ` (${meta.breadth_score.toFixed(1)})` : ""}
+              </p>
+            )}
+          </div>
+        </Section>
+      </div>
+
+      {/* Key Triggers + Caveats */}
+      {(ticket.key_triggers?.length > 0 || meta.caveats?.length > 0) && (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+          {ticket.key_triggers?.length > 0 && (
+            <Section title="Key Triggers">
+              <ul className="space-y-2">
+                {ticket.key_triggers.map((t, i) => (
+                  <li
+                    key={i}
+                    className="flex items-start gap-3 p-3"
+                    style={{
+                      background: "var(--surface-2)",
+                      border: "1px solid var(--border)",
+                      borderLeft: "3px solid var(--accent)",
+                      borderRadius: "4px",
+                    }}
+                  >
+                    <span className="font-mono text-base mt-0.5 shrink-0" style={{ color: "var(--accent)" }}>→</span>
+                    <span className="text-sm leading-relaxed" style={{ color: "var(--text)" }}>{t}</span>
+                  </li>
+                ))}
+              </ul>
+            </Section>
+          )}
+
+          {meta.caveats?.length > 0 && (
+            <Section title="Caveats">
+              <ul className="space-y-2">
+                {meta.caveats.map((c: string, i: number) => (
+                  <li
+                    key={i}
+                    className="flex items-start gap-3 p-3"
+                    style={{
+                      background: "var(--surface-2)",
+                      border: "1px solid var(--border)",
+                      borderLeft: "3px solid var(--red)",
+                      borderRadius: "4px",
+                    }}
+                  >
+                    <span className="font-mono text-base mt-0.5 shrink-0" style={{ color: "var(--red)" }}>⚠</span>
+                    <span className="text-sm leading-relaxed" style={{ color: "var(--text-muted)" }}>{c}</span>
+                  </li>
+                ))}
+              </ul>
+            </Section>
+          )}
+        </div>
+      )}
+
       {/* Context sections */}
       {(meta.entry_rationale || meta.trend_context || meta.volume_context || meta.market_breadth_context) && (
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
@@ -542,7 +542,7 @@ export default function TicketClient({ id }: { id: string }) {
         >
           <button
             onClick={() => setPreScreenOpen((o) => !o)}
-            className="w-full flex items-center justify-between px-4 py-3 text-left transition-colors hover:bg-zinc-800"
+            className="w-full flex items-center justify-between px-4 py-3 text-left transition-colors hover:bg-[var(--surface-2)]"
             style={{ cursor: "pointer", background: "none", border: "none" }}
           >
             <span className="text-xs font-mono uppercase tracking-widest" style={{ color: "var(--text-dim)" }}>

@@ -54,7 +54,7 @@ function TicketRow({ ticket }: { ticket: ResearchTicket }) {
   return (
     <Link
       href={`/research/${ticket.id}`}
-      className="flex items-center gap-4 px-4 py-3 transition-colors hover:bg-zinc-800"
+      className="flex items-center gap-4 px-4 py-3 transition-colors hover:bg-[var(--surface-2)]"
       style={{ borderBottom: "1px solid var(--border-subtle)" }}
     >
       <span className="font-mono text-sm font-semibold w-20" style={{ color: "var(--text)" }}>

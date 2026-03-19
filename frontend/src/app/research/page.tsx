@@ -179,7 +179,7 @@ export default function ResearchPage() {
               <Link
                 key={t.id}
                 href={`/research/${t.id}`}
-                className="grid items-center px-4 py-3 hover:bg-zinc-800 transition-colors"
+                className="grid items-center px-4 py-3 hover:bg-[var(--surface-2)] transition-colors"
                 style={{
                   gridTemplateColumns: "80px 70px 90px 90px 90px 60px 70px 80px 100px",
                   borderBottom: "1px solid var(--border-subtle)",

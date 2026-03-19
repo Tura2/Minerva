@@ -8,25 +8,11 @@ import { ApiError } from "@/lib/types";
 
 // ── Symbol icon ──────────────────────────────────────────────────────────────
 
-const SYMBOL_COLORS = [
-  "#3b82f6", "#8b5cf6", "#57c1d5", "#10b981", "#06b6d4",
-  "#6366f1", "#14b8a6", "#84cc16", "#0ea5e9", "#22d3ee",
-  "#a78bfa", "#34d399", "#38bdf8", "#7c3aed", "#0891b2",
-];
-
-function symbolColor(symbol: string): string {
-  let hash = 0;
-  for (let i = 0; i < symbol.length; i++) {
-    hash = symbol.charCodeAt(i) + ((hash << 5) - hash);
-  }
-  return SYMBOL_COLORS[Math.abs(hash) % SYMBOL_COLORS.length];
-}
-
-function SymbolIcon({ symbol }: { symbol: string }) {
+function SymbolIcon({ symbol, market }: { symbol: string; market: string }) {
   const [failed, setFailed] = useState(false);
   // nvstly/icons CDN — covers ~3000 US tickers + some global
   const src = `https://cdn.jsdelivr.net/gh/nvstly/icons@main/ticker_icons/${symbol}.png`;
-  const color = symbolColor(symbol);
+  const color = market === "US" ? "#3b82f6" : "#57c1d5";
   const initials = symbol.slice(0, 2).toUpperCase();
 
   if (failed) {
@@ -321,7 +307,8 @@ export default function WatchlistPage() {
         <div
           className="grid items-center px-4 py-2.5 text-xs font-semibold uppercase tracking-widest"
           style={{
-            gridTemplateColumns: "40px 1fr 76px 100px 120px 36px",
+            gridTemplateColumns: "52px 1fr 76px 110px 130px 36px",
+            gap: "0 12px",
             borderBottom: "1px solid var(--border)",
             color: "var(--text-dim)",
           }}
@@ -352,15 +339,16 @@ export default function WatchlistPage() {
           items.map((item) => (
             <div
               key={item.id}
-              className="grid items-center px-4 py-2 transition-colors"
+              className="grid items-center px-4 py-2 transition-colors hover:bg-[var(--surface-2)]"
               style={{
-                gridTemplateColumns: "40px 1fr 76px 100px 120px 36px",
+                gridTemplateColumns: "52px 1fr 76px 110px 130px 36px",
+                gap: "0 12px",
                 borderBottom: "1px solid var(--border-subtle)",
               }}
             >
               {/* Icon */}
               <div className="flex items-center justify-center">
-                <SymbolIcon symbol={item.symbol} />
+                <SymbolIcon symbol={item.symbol} market={item.market} />
               </div>
 
               {/* Symbol */}
