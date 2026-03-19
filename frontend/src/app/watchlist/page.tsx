@@ -8,20 +8,31 @@ import { ApiError } from "@/lib/types";
 
 // ── Symbol icon ──────────────────────────────────────────────────────────────
 
-function SymbolIcon({ symbol, market }: { symbol: string; market: string }) {
+const SYMBOL_COLORS = [
+  "#3b82f6", "#8b5cf6", "#57c1d5", "#10b981", "#06b6d4",
+  "#6366f1", "#14b8a6", "#0ea5e9", "#22d3ee", "#a78bfa",
+  "#34d399", "#38bdf8", "#7c3aed", "#0891b2", "#84cc16",
+];
+
+function symbolColor(symbol: string): string {
+  let hash = 0;
+  for (let i = 0; i < symbol.length; i++) {
+    hash = symbol.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  return SYMBOL_COLORS[Math.abs(hash) % SYMBOL_COLORS.length];
+}
+
+function SymbolIcon({ symbol }: { symbol: string }) {
   const [failed, setFailed] = useState(false);
-  // nvstly/icons CDN — covers ~3000 US tickers + some global
   const src = `https://cdn.jsdelivr.net/gh/nvstly/icons@main/ticker_icons/${symbol}.png`;
-  const color = market === "US" ? "#3b82f6" : "#57c1d5";
-  const initials = symbol.slice(0, 2).toUpperCase();
 
   if (failed) {
     return (
       <span
-        className="inline-flex items-center justify-center shrink-0 rounded-full text-xs font-bold"
-        style={{ width: 28, height: 28, background: color, color: "#fff" }}
+        className="inline-flex items-center justify-center shrink-0 rounded-full font-bold"
+        style={{ width: 26, height: 26, background: symbolColor(symbol), color: "#fff", fontSize: 10 }}
       >
-        {initials}
+        {symbol.slice(0, 2).toUpperCase()}
       </span>
     );
   }
@@ -31,10 +42,9 @@ function SymbolIcon({ symbol, market }: { symbol: string; market: string }) {
     <img
       src={src}
       alt={symbol}
-      width={28}
-      height={28}
+      width={26}
+      height={26}
       className="rounded-full shrink-0 object-cover"
-      style={{ background: color }}
       onError={() => setFailed(true)}
     />
   );
@@ -50,23 +60,23 @@ function formatDate(iso: string) {
   });
 }
 
-function PriceCell({ quote, loading }: { quote?: Quote; loading: boolean }) {
-  if (loading) return <span className="skeleton inline-block w-16 h-4" />;
-  if (!quote || quote.error) return <span style={{ color: "var(--text-dim)" }}>—</span>;
+function PriceInline({ quote, loading }: { quote?: Quote; loading: boolean }) {
+  if (loading) return <span className="skeleton inline-block w-14 h-3 align-middle" />;
+  if (!quote || quote.error) return null;
 
   const up = quote.change_pct >= 0;
   const sign = up ? "+" : "";
   const color = up ? "var(--green)" : "var(--red)";
 
   return (
-    <div className="text-right">
-      <span className="font-mono text-sm block" style={{ color: "var(--text)" }}>
+    <>
+      <span className="font-mono" style={{ color: "var(--text-muted)", fontSize: 12 }}>
         {quote.price.toFixed(2)}
       </span>
-      <span className="font-mono text-xs block" style={{ color }}>
+      <span className="font-mono" style={{ color, fontSize: 11 }}>
         {sign}{quote.change_pct.toFixed(2)}%
       </span>
-    </div>
+    </>
   );
 }
 
@@ -305,18 +315,16 @@ export default function WatchlistPage() {
       >
         {/* Header */}
         <div
-          className="grid items-center px-4 py-2.5 text-xs font-semibold uppercase tracking-widest"
+          className="grid items-center px-4 py-2 text-xs font-semibold uppercase tracking-widest"
           style={{
-            gridTemplateColumns: "52px 1fr 76px 110px 130px 36px",
-            gap: "0 12px",
+            gridTemplateColumns: "40px 1fr 110px 32px",
+            gap: "0 8px",
             borderBottom: "1px solid var(--border)",
             color: "var(--text-dim)",
           }}
         >
           <span />
           <span>Symbol</span>
-          <span>Market</span>
-          <span className="text-right">Price / Δ</span>
           <span>Added</span>
           <span />
         </div>
@@ -324,7 +332,7 @@ export default function WatchlistPage() {
         {loading ? (
           <div className="p-4 space-y-3">
             {Array.from({ length: 5 }).map((_, i) => (
-              <div key={i} className="skeleton h-12 rounded" />
+              <div key={i} className="skeleton h-9 rounded" />
             ))}
           </div>
         ) : items.length === 0 ? (
@@ -339,46 +347,38 @@ export default function WatchlistPage() {
           items.map((item) => (
             <div
               key={item.id}
-              className="grid items-center px-4 py-2 transition-colors hover:bg-[var(--surface-2)]"
+              className="grid items-center px-4 py-1.5 transition-colors hover:bg-[var(--surface-2)]"
               style={{
-                gridTemplateColumns: "52px 1fr 76px 110px 130px 36px",
-                gap: "0 12px",
+                gridTemplateColumns: "40px 1fr 110px 32px",
+                gap: "0 8px",
                 borderBottom: "1px solid var(--border-subtle)",
               }}
             >
               {/* Icon */}
               <div className="flex items-center justify-center">
-                <SymbolIcon symbol={item.symbol} market={item.market} />
+                <SymbolIcon symbol={item.symbol} />
               </div>
 
-              {/* Symbol */}
-              <div>
-                <span className="font-bold text-sm" style={{ color: "var(--text)" }}>
+              {/* Symbol + market + price all inline */}
+              <div className="flex items-center gap-2 flex-wrap min-w-0">
+                <span className="font-bold text-sm shrink-0" style={{ color: "var(--text)" }}>
                   {item.symbol}
                 </span>
-                {quotes[item.symbol]?.volume && (
-                  <span className="text-xs block font-mono" style={{ color: "var(--text-dim)" }}>
-                    Vol {(quotes[item.symbol].volume! / 1_000).toFixed(0)}K
-                  </span>
-                )}
+                <span
+                  className="px-1.5 py-px font-semibold rounded shrink-0"
+                  style={{
+                    fontSize: 10,
+                    background: item.market === "US" ? "var(--blue-dim)" : "var(--accent-dim)",
+                    color: item.market === "US" ? "var(--blue)" : "var(--accent)",
+                  }}
+                >
+                  {item.market}
+                </span>
+                <PriceInline quote={quotes[item.symbol]} loading={quotesLoading && !quotes[item.symbol]} />
               </div>
 
-              {/* Market badge */}
-              <span
-                className="px-1.5 py-0.5 text-xs font-semibold rounded w-fit"
-                style={{
-                  background: item.market === "US" ? "var(--blue-dim)" : "var(--accent-dim)",
-                  color: item.market === "US" ? "var(--blue)" : "var(--accent)",
-                }}
-              >
-                {item.market}
-              </span>
-
-              {/* Price */}
-              <PriceCell quote={quotes[item.symbol]} loading={quotesLoading && !quotes[item.symbol]} />
-
               {/* Added date */}
-              <span className="text-xs" style={{ color: "var(--text-dim)" }}>
+              <span style={{ color: "var(--text-dim)", fontSize: 11 }}>
                 {formatDate(item.added_at)}
               </span>
 
@@ -386,12 +386,13 @@ export default function WatchlistPage() {
               <button
                 onClick={() => handleRemove(item.id)}
                 disabled={removingId === item.id}
-                className="text-sm transition-colors"
                 style={{
+                  fontSize: 11,
                   color: removingId === item.id ? "var(--text-dim)" : "var(--red)",
                   cursor: removingId === item.id ? "not-allowed" : "pointer",
                   background: "none",
                   border: "none",
+                  padding: 0,
                 }}
                 aria-label={`Remove ${item.symbol}`}
               >
