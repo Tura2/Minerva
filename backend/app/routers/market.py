@@ -48,18 +48,20 @@ def _yf_symbol(symbol: str, market: str) -> str:
     return symbol
 
 
-def _normalize_candles(df) -> list[Candle]:
-    """Convert yfinance DataFrame to list of Candle with epoch-ms timestamps."""
+def _normalize_candles(df, market: str = "US") -> list[Candle]:
+    """Convert yfinance DataFrame to list of Candle with epoch-ms timestamps.
+    TASE prices are in agorot (1/100 ILS) — divide by 100 to get ILS.
+    """
+    divisor = 100.0 if market.upper() == "TASE" else 1.0
     candles = []
     for ts, row in df.iterrows():
-        # ts is a pandas Timestamp (tz-aware); convert to epoch ms
         epoch_ms = int(ts.timestamp() * 1000)
         candles.append(Candle(
             ts=epoch_ms,
-            open=round(float(row["Open"]), 4),
-            high=round(float(row["High"]), 4),
-            low=round(float(row["Low"]), 4),
-            close=round(float(row["Close"]), 4),
+            open=round(float(row["Open"]) / divisor, 4),
+            high=round(float(row["High"]) / divisor, 4),
+            low=round(float(row["Low"]) / divisor, 4),
+            close=round(float(row["Close"]) / divisor, 4),
             volume=float(row["Volume"]) if row["Volume"] else None,
         ))
     return candles
@@ -91,7 +93,7 @@ async def get_market_history(
     if df.empty:
         raise HTTPException(status_code=404, detail=f"No data found for {symbol} on {market}")
 
-    candles = _normalize_candles(df)
+    candles = _normalize_candles(df, market)
 
     # Check staleness
     last_ts_ms = candles[-1].ts
@@ -144,14 +146,19 @@ class BatchQuoteRequest(BaseModel):
 
 
 def _fetch_quote_sync(symbol: str, market: str) -> dict:
-    """Fetch last price + day change for a symbol (synchronous, runs in thread)."""
+    """Fetch last price + day change for a symbol (synchronous, runs in thread).
+    TASE prices from yfinance are in agorot — divide by 100 to get ILS.
+    """
     yf_sym = _yf_symbol(symbol.upper(), market.upper())
+    divisor = 100.0 if market.upper() == "TASE" else 1.0
     try:
         df = yf.Ticker(yf_sym).history(period="5d", interval="1d", auto_adjust=True)
         if df.empty:
             return {"symbol": symbol.upper(), "market": market.upper(), "error": "No data"}
-        price = round(float(df["Close"].iloc[-1]), 4)
-        prev_close = float(df["Close"].iloc[-2]) if len(df) >= 2 else price
+        raw_price = float(df["Close"].iloc[-1])
+        raw_prev = float(df["Close"].iloc[-2]) if len(df) >= 2 else raw_price
+        price = round(raw_price / divisor, 4)
+        prev_close = raw_prev / divisor
         change = round(price - prev_close, 4)
         change_pct = round((change / prev_close * 100) if prev_close else 0.0, 2)
         volume = float(df["Volume"].iloc[-1]) if df["Volume"].iloc[-1] else None

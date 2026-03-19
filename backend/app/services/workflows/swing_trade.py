@@ -160,6 +160,11 @@ async def _node_fetch_data(state: SwingTradeState) -> SwingTradeState:
     df.index = pd.to_datetime(df.index)
     df = df.sort_index()
 
+    # TASE prices from yfinance are in agorot (1/100 ILS) — convert to ILS
+    if state.market.upper() == "TASE":
+        for col in ("open", "high", "low", "close"):
+            df[col] = df[col] / 100.0
+
     state.df = df
     state.indicators = compute_indicators(df)
 

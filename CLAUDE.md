@@ -437,6 +437,8 @@ Frontend market data endpoint (`/market/history`) normalizes OHLC:
 - **DB migrations applied:** 001 (initial schema) + 002 (`metadata JSONB`, `key_triggers TEXT[]`) + 003 (`total_in_watchlist` on scan_history, updated_at trigger)
 - **research_tickets** has `metadata`, `key_triggers`, `updated_at` columns — always include in inserts
 - **Workflow nodes** (in order): fetch_data → pre_screen → fetch_breadth → llm_research → compute_sizing → persist_ticket
+- **Agorot fix (2026-03-19):** TASE prices from yfinance are in agorot (1/100 ILS). Fixed in `_node_fetch_data()` (divides df OHLC ÷ 100) and `market.py` (_normalize_candles + _fetch_quote_sync). All TASE price display and research is now in correct ILS units.
+- **Workflow docs:** See `docs/WORKFLOWS.md` — full node reference, known issues, improvement roadmap, prompt engineering notes
 - **Pre-screen gate** returns 422 with structured JSON on failure; `force=true` param bypasses it; `force_refresh=true` bypasses 24h dedup
 - **Market breadth** (Monty's CSV) is US-only; TASE always returns a neutral stub — expected
 - **Theme system:** `ThemeProvider` context + CSS variables, dark default + `.light` class override; "Assistant" + "JetBrains Mono" Google Fonts; base font 16px
