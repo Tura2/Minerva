@@ -32,8 +32,13 @@ STAGE2_THRESHOLDS = {
     },
 }
 
-# Market-aware minimum average volume
-MIN_AVG_VOLUME = {"US": 200_000, "TASE": 30_000}
+# Minimum Relative Volume for the liquidity gate.
+# RVOL = today's volume / stock's own 50d average — market-agnostic by design.
+# A floor of 0.5 means "trading at least half its own normal pace."
+MIN_RVOL = {"US": 0.5, "TASE": 0.3}
+
+# Absolute fallback floor — only used when RVOL cannot be computed (insufficient history).
+MIN_AVG_VOLUME_FALLBACK = {"US": 200_000, "TASE": 30_000}
 
 
 @dataclass
@@ -79,6 +84,7 @@ def pre_screen(
     high_52w = indicators.get("high_52w")
     low_52w = indicators.get("low_52w")
     avg_vol_50 = indicators.get("avg_vol_50")
+    rvol = indicators.get("rvol")
 
     if price is None:
         return PreScreenResult(
@@ -144,13 +150,22 @@ def pre_screen(
         checks["near_52w_high"] = False
         reasons.append("52-week high unavailable")
 
-    # ── Liquidity Check ──────────────────────────────────────────────────────
-    min_vol = MIN_AVG_VOLUME.get(market.upper(), 200_000)
-    if avg_vol_50 is not None:
-        checks["min_volume"] = avg_vol_50 >= min_vol
+    # ── Liquidity Check (RVOL-based) ─────────────────────────────────────────
+    # Primary: RVOL — compares today's activity to the stock's own baseline.
+    # Fallback: absolute avg volume when RVOL cannot be computed.
+    min_rvol = MIN_RVOL.get(market.upper(), 0.5)
+    if rvol is not None:
+        checks["min_volume"] = rvol >= min_rvol
         if not checks["min_volume"]:
             reasons.append(
-                f"Avg 50-day volume {int(avg_vol_50):,} below minimum {min_vol:,}"
+                f"RVOL {rvol:.2f} < {min_rvol} (below own average trading pace)"
+            )
+    elif avg_vol_50 is not None:
+        fallback_min = MIN_AVG_VOLUME_FALLBACK.get(market.upper(), 200_000)
+        checks["min_volume"] = avg_vol_50 >= fallback_min
+        if not checks["min_volume"]:
+            reasons.append(
+                f"Avg 50-day volume {int(avg_vol_50):,} below minimum {fallback_min:,}"
             )
     else:
         checks["min_volume"] = False

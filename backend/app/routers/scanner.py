@@ -19,7 +19,8 @@ class ScanRequest(BaseModel):
     symbols: Optional[list[str]] = None  # if set, scan these instead of watchlist
     min_price: Optional[float] = None
     max_price: Optional[float] = None
-    min_volume: Optional[int] = None
+    min_rvol: Optional[float] = None     # relative volume floor (e.g. 0.5 = 50% of own avg)
+    min_atr_pct: Optional[float] = None  # ATR-14 as % of price floor (e.g. 0.5 = 0.5%)
 
 
 class CandidateOut(BaseModel):
@@ -84,7 +85,8 @@ async def run_scan(req: ScanRequest):
         "filters": {
             "min_price": req.min_price,
             "max_price": req.max_price,
-            "min_volume": req.min_volume,
+            "min_rvol": req.min_rvol,
+            "min_atr_pct": req.min_atr_pct,
         },
     }).execute()
     scan_id = scan_record.data[0]["id"]
@@ -97,7 +99,8 @@ async def run_scan(req: ScanRequest):
             market=market,
             min_price=req.min_price,
             max_price=req.max_price,
-            min_volume=req.min_volume,
+            min_rvol=req.min_rvol,
+            min_atr_pct=req.min_atr_pct,
         )
         candidates = candidates[:req.limit]
 

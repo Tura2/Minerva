@@ -54,6 +54,19 @@ def compute_indicators(df: pd.DataFrame) -> Dict[str, Any]:
         ma200_trending_up = bool(ma200_clean.iloc[-1] > ma200_clean.iloc[-22])
 
     current_price = float(close.iloc[-1])
+    current_vol = int(volume.iloc[-1]) if not pd.isna(volume.iloc[-1]) else None
+
+    # ATR as % of current price — normalises volatility across price levels
+    atr14_val = _last_valid(atr14)
+    atr_pct = round(atr14_val / current_price * 100, 4) if (atr14_val and current_price) else None
+
+    # Relative Volume — current session vs 50-day average (normalises across markets)
+    avg_vol_50_val = _last_valid(avg_vol_50)
+    rvol = (
+        round(current_vol / avg_vol_50_val, 4)
+        if (current_vol and avg_vol_50_val and avg_vol_50_val > 0)
+        else None
+    )
 
     return {
         "price": current_price,
@@ -61,12 +74,14 @@ def compute_indicators(df: pd.DataFrame) -> Dict[str, Any]:
         "ma50": _last_valid(ma50),
         "ma150": _last_valid(ma150),
         "ma200": _last_valid(ma200),
-        "atr14": _last_valid(atr14),
+        "atr14": atr14_val,
+        "atr_pct": atr_pct,
         "rsi14": _last_valid(rsi14),
         "high_52w": _last_valid(high_52w),
         "low_52w": _last_valid(low_52w),
-        "avg_vol_50": _last_valid(avg_vol_50),
-        "volume": int(volume.iloc[-1]) if not pd.isna(volume.iloc[-1]) else None,
+        "avg_vol_50": avg_vol_50_val,
+        "rvol": rvol,
+        "volume": current_vol,
         "ma200_trending_up": ma200_trending_up,
         # Series kept for VCP detection (prefixed with _ to signal internal use)
         "_close": close,

@@ -11,21 +11,20 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-# Market-aware filter defaults
+# Market-aware filter defaults.
+# All thresholds are RELATIVE to the stock's own history — no absolute volume/volatility.
 MARKET_DEFAULTS = {
     "US": {
-        "min_price": 5.0,
-        "max_price": 2000.0,
-        "min_volume": 500_000,
-        "min_volatility": 0.008,
+        "min_price": 5.0,      # loose safety rail: filter sub-penny stocks
+        "max_price": 2000.0,   # loose upper rail
+        "min_rvol": 0.5,       # today's vol >= 50% of own 20d avg (actively trading)
+        "min_atr_pct": 0.5,    # ATR-14 >= 0.5% of price (avoids flat/dead stocks)
     },
     "TASE": {
-        # Prices are in ILS (post agorot ÷100 conversion applied in fetch_market_data)
-        # TASE stocks typically trade between 1–2000 ILS
         "min_price": 1.0,
         "max_price": 2000.0,
-        "min_volume": 30_000,   # TASE is less liquid; lower bar
-        "min_volatility": 0.005,
+        "min_rvol": 0.3,       # TASE lower baseline liquidity — more relaxed
+        "min_atr_pct": 0.3,    # TASE smaller ATR% threshold
     },
 }
 
@@ -89,18 +88,22 @@ class ScannerService:
         market: str,
         min_price: float | None = None,
         max_price: float | None = None,
-        min_volume: int | None = None,
-        min_volatility: float | None = None,
+        min_rvol: float | None = None,
+        min_atr_pct: float | None = None,
     ) -> list[dict[str, Any]]:
         """
-        Apply market-aware screener filters.
-        Falls back to market defaults for any unspecified threshold.
+        Apply market-aware screener filters using RELATIVE metrics.
+
+        All thresholds compare a stock against its own history:
+        - RVOL (Relative Volume): today vs its own 20d average — no cross-stock bias
+        - ATR% (ATR-14 as % of price): volatility normalised to price level
+        Price range is kept as a loose safety rail only (filters sub-penny/extreme instruments).
         """
         defaults = MARKET_DEFAULTS.get(market, MARKET_DEFAULTS["US"])
         min_price = min_price if min_price is not None else defaults["min_price"]
         max_price = max_price if max_price is not None else defaults["max_price"]
-        min_volume = min_volume if min_volume is not None else defaults["min_volume"]
-        min_volatility = min_volatility if min_volatility is not None else defaults["min_volatility"]
+        min_rvol = min_rvol if min_rvol is not None else defaults["min_rvol"]
+        min_atr_pct = min_atr_pct if min_atr_pct is not None else defaults["min_atr_pct"]
 
         candidates = []
         rejections: dict[str, str] = {}
@@ -110,19 +113,30 @@ class ScannerService:
                 latest = df.iloc[-1]
                 price = float(latest["Close"])
                 volume = float(latest["Volume"])
-                volatility = float(df["Close"].pct_change().std())
 
+                # ── Safety rails (price only) ────────────────────────────────────
                 if price < min_price or price > max_price:
                     rejections[symbol] = f"price {price:.2f} outside [{min_price}, {max_price}]"
                     continue
-                if volume < min_volume:
-                    rejections[symbol] = f"volume {volume:.0f} < {min_volume}"
-                    continue
-                if volatility < min_volatility:
-                    rejections[symbol] = f"volatility {volatility:.4f} < {min_volatility}"
+
+                # ── Relative Volume ───────────────────────────────────────────────
+                avg_vol_20 = float(df["Volume"].tail(20).mean())
+                rvol = volume / avg_vol_20 if avg_vol_20 > 0 else 0.0
+                if rvol < min_rvol:
+                    rejections[symbol] = (
+                        f"RVOL {rvol:.2f} < {min_rvol} (trading below own avg volume)"
+                    )
                     continue
 
-                score = self._compute_score(df, price, volume, volatility)
+                # ── ATR as % of price ─────────────────────────────────────────────
+                atr_pct = self._compute_atr_pct(df, price)
+                if atr_pct < min_atr_pct:
+                    rejections[symbol] = (
+                        f"ATR% {atr_pct:.3f}% < {min_atr_pct}% (price range too flat)"
+                    )
+                    continue
+
+                score = self._compute_score(rvol, atr_pct)
                 candidates.append({
                     "symbol": symbol,
                     "market": market,
@@ -130,7 +144,10 @@ class ScannerService:
                     "volume": int(volume),
                     "score": round(score, 4),
                     "screened_at": datetime.now(timezone.utc).isoformat(),
-                    "metadata": {"volatility": round(volatility, 6)},
+                    "metadata": {
+                        "rvol": round(rvol, 2),
+                        "atr_pct": round(atr_pct, 3),
+                    },
                 })
 
             except Exception as e:
@@ -143,11 +160,26 @@ class ScannerService:
         logger.info(f"Screener: {len(candidates)} passed / {len(data)} fetched")
         return candidates
 
-    def _compute_score(self, df: pd.DataFrame, price: float, volume: float, volatility: float) -> float:
+    def _compute_atr_pct(self, df: pd.DataFrame, price: float) -> float:
+        """Compute ATR-14 as % of current price (volatility normalised to price level)."""
+        if len(df) < 15:
+            return 0.0
+        high = df["High"]
+        low = df["Low"]
+        prev_close = df["Close"].shift(1)
+        tr = pd.concat(
+            [high - low, (high - prev_close).abs(), (low - prev_close).abs()],
+            axis=1,
+        ).max(axis=1)
+        atr = float(tr.ewm(span=14, min_periods=14, adjust=False).mean().iloc[-1])
+        return (atr / price * 100) if price > 0 else 0.0
+
+    def _compute_score(self, rvol: float, atr_pct: float) -> float:
         """
-        Simple composite score: rewards volatility and relative volume.
-        Volume ratio = latest volume / 20-day avg volume.
+        Composite relative score — both inputs are already normalised to the
+        stock's own history, so this score is market-agnostic.
+
+        RVOL capped at 3× to avoid overnight gaps dominating the score.
+        ATR% weighted equally with RVOL.
         """
-        avg_volume = df["Close"].tail(20).mean()
-        vol_ratio = volume / avg_volume if avg_volume > 0 else 1.0
-        return (volatility * 50) + (min(vol_ratio, 3.0) * 10)
+        return (min(rvol, 3.0) * 10) + (atr_pct * 10)

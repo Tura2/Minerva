@@ -438,6 +438,7 @@ Frontend market data endpoint (`/market/history`) normalizes OHLC:
 - **research_tickets** has `metadata`, `key_triggers`, `updated_at` columns — always include in inserts
 - **Workflow nodes** (in order): fetch_data → pre_screen → fetch_breadth → llm_research → compute_sizing → persist_ticket
 - **Agorot fix (2026-03-19):** TASE prices from yfinance are in agorot (1/100 ILS). Fixed in `_node_fetch_data()` (divides df OHLC ÷ 100) and `market.py` (_normalize_candles + _fetch_quote_sync). All TASE price display and research is now in correct ILS units.
+- **Relative screening refactor (2026-03-19):** Scanner now uses RVOL (relative volume = today / 20d avg) and ATR% (ATR-14 / price × 100) instead of absolute volume/volatility. Pre-screen liquidity gate uses RVOL from indicators (fallback: absolute avg_vol floor). `indicators.py` now emits `rvol` and `atr_pct`. Score is market-agnostic: `min(rvol, 3) × 10 + atr_pct × 10`. Also fixed a score bug where `df["Close"]` was used instead of `df["Volume"]` in the old score fn.
 - **Workflow docs:** See `docs/WORKFLOWS.md` — full node reference, known issues, improvement roadmap, prompt engineering notes
 - **Pre-screen gate** returns 422 with structured JSON on failure; `force=true` param bypasses it; `force_refresh=true` bypasses 24h dedup
 - **Market breadth** (Monty's CSV) is US-only; TASE always returns a neutral stub — expected
