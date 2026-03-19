@@ -8,21 +8,23 @@ pydantic-settings==2.1.0
 # Data Fetching and Analysis
 yfinance==0.2.33
 pandas==2.1.4
-numpy==1.24.3
+numpy==1.26.4
 
-# LLM and Workflow Orchestration
-langchain==0.1.10
-langgraph==0.0.20
-openrouter==0.1.0
-httpx==0.25.2
+# LLM Client (direct HTTP — no SDK needed for OpenRouter)
+httpx>=0.25.2
 requests==2.31.0
+tenacity==8.2.3
 
 # Database
-supabase==2.0.2
-python-postgres==0.1.0
+supabase==2.7.4
 
-# Async and Concurrency
+# Async
 aiohttp==3.9.1
+
+# Workflow orchestration — pinned together to avoid langchain-core conflicts
+# Uncomment when Phase 3 begins (both require langchain-core>=0.2)
+# langchain==0.2.16
+# langgraph==0.2.76
 
 # Testing
 pytest==7.4.4
@@ -31,7 +33,3 @@ pytest-cov==4.1.0
 
 # Code Quality
 ruff==0.1.11
-black==23.12.1
-
-# Utilities
-tenacity==8.2.3
