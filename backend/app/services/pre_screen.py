@@ -16,9 +16,21 @@ from app.services.indicators import detect_vcp_contractions
 
 logger = logging.getLogger(__name__)
 
-# Minervini Trend Template thresholds
-STAGE2_ABOVE_52W_LOW_PCT = 25.0   # price >= 25% above 52-week low
-STAGE2_NEAR_52W_HIGH_PCT = 25.0   # price within 25% of 52-week high
+# Market-aware Stage 2 thresholds.
+# TASE is more volatile and has fewer trading days (Sun–Thu + Israeli holidays),
+# so some Minervini criteria are relaxed to avoid filtering all TASE stocks.
+STAGE2_THRESHOLDS = {
+    "US": {
+        "above_52w_low_pct": 25.0,    # price >= 25% above 52w low
+        "near_52w_high_pct": 25.0,    # price within 25% of 52w high
+        "ma200_trend_sessions": 22,   # MA200 slope window
+    },
+    "TASE": {
+        "above_52w_low_pct": 20.0,    # relaxed — TASE stocks recover from deeper drawdowns
+        "near_52w_high_pct": 30.0,    # relaxed — allow wider distance from highs
+        "ma200_trend_sessions": 15,   # fewer sessions — holidays create gaps in TASE data
+    },
+}
 
 # Market-aware minimum average volume
 MIN_AVG_VOLUME = {"US": 200_000, "TASE": 30_000}
@@ -54,6 +66,12 @@ def pre_screen(
     checks: Dict[str, bool] = {}
     reasons: list = []
 
+    # Pull market-specific thresholds
+    t = STAGE2_THRESHOLDS.get(market.upper(), STAGE2_THRESHOLDS["US"])
+    above_52w_low_pct = t["above_52w_low_pct"]
+    near_52w_high_pct = t["near_52w_high_pct"]
+    ma200_trend_sessions = t["ma200_trend_sessions"]
+
     price = indicators.get("price")
     ma50 = indicators.get("ma50")
     ma150 = indicators.get("ma150")
@@ -61,7 +79,6 @@ def pre_screen(
     high_52w = indicators.get("high_52w")
     low_52w = indicators.get("low_52w")
     avg_vol_50 = indicators.get("avg_vol_50")
-    ma200_trending_up = indicators.get("ma200_trending_up", False)
 
     if price is None:
         return PreScreenResult(
@@ -88,35 +105,40 @@ def pre_screen(
     if not checks["ma150_above_ma200"]:
         reasons.append(f"MA150 {(ma150 or 0):.2f} not above MA200 {(ma200 or 0):.2f}")
 
-    # 4. MA200 trending up (22+ sessions)
+    # 4. MA200 trending up (market-specific session window)
+    ma200_series = df["close"].rolling(200).mean().dropna()
+    if len(ma200_series) >= ma200_trend_sessions:
+        ma200_trending_up = bool(ma200_series.iloc[-1] > ma200_series.iloc[-ma200_trend_sessions])
+    else:
+        ma200_trending_up = False
     checks["ma200_trending_up"] = ma200_trending_up
     if not checks["ma200_trending_up"]:
-        reasons.append("MA200 not trending up over last 22 sessions")
+        reasons.append(f"MA200 not trending up over last {ma200_trend_sessions} sessions")
 
     # 5. Price above MA50
     checks["price_above_ma50"] = price > ma50 if ma50 else False
     if not checks["price_above_ma50"]:
         reasons.append(f"Price {price:.2f} below MA50 {(ma50 or 0):.2f}")
 
-    # 6. Price >= 25% above 52-week low
+    # 6. Price >= N% above 52-week low (market-specific threshold)
     if low_52w and low_52w > 0:
         above_low_pct = (price - low_52w) / low_52w * 100
-        checks["above_52w_low"] = above_low_pct >= STAGE2_ABOVE_52W_LOW_PCT
+        checks["above_52w_low"] = above_low_pct >= above_52w_low_pct
         if not checks["above_52w_low"]:
             reasons.append(
-                f"Price only {above_low_pct:.1f}% above 52w low (need ≥{STAGE2_ABOVE_52W_LOW_PCT}%)"
+                f"Price only {above_low_pct:.1f}% above 52w low (need ≥{above_52w_low_pct}%)"
             )
     else:
         checks["above_52w_low"] = False
         reasons.append("52-week low unavailable")
 
-    # 7. Price within 25% of 52-week high
+    # 7. Price within N% of 52-week high (market-specific threshold)
     if high_52w and high_52w > 0:
         below_high_pct = (high_52w - price) / high_52w * 100
-        checks["near_52w_high"] = below_high_pct <= STAGE2_NEAR_52W_HIGH_PCT
+        checks["near_52w_high"] = below_high_pct <= near_52w_high_pct
         if not checks["near_52w_high"]:
             reasons.append(
-                f"Price {below_high_pct:.1f}% below 52w high (need within {STAGE2_NEAR_52W_HIGH_PCT}%)"
+                f"Price {below_high_pct:.1f}% below 52w high (need within {near_52w_high_pct}%)"
             )
     else:
         checks["near_52w_high"] = False

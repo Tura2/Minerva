@@ -1,5 +1,8 @@
 # Minerva — Workflows & Skill Improvement Roadmap
 
+> Last updated: 2026-03-19
+> See also: CLAUDE.md §"Codebase State" for applied fixes
+
 ## 1. Current Workflow: `technical-swing`
 
 ### Pipeline Overview
@@ -309,3 +312,201 @@ Improves consistency of price levels.
 - Research pipeline funnel: Watchlist → Candidates → Researched → Approved.
 - TASE / US split metrics side-by-side.
 - Weekly performance summary: tickets approved this week, avg R/R, avg bullish_probability.
+
+---
+
+## 7. Market Adaptation — TASE vs US
+
+### Root Causes of Low TASE Pass Rate (Fixed 2026-03-19)
+
+| Problem | Root Cause | Fix Applied |
+|---------|-----------|-------------|
+| Most TASE stocks filtered before pre-screen | Scanner `max_price: 500` rejected agorot prices (e.g. 2000 agorot = 20 NIS → rejected) | Agorot ÷100 in `fetch_market_data()`, max_price raised to 2000 ILS |
+| All thresholds same for both markets | Minervini criteria designed for US large-caps | Market-specific `STAGE2_THRESHOLDS` dict in pre_screen.py |
+| MA200 requiring 22 sessions of uptrend | TASE has fewer sessions due to Sun–Thu trading + Israeli holidays | Reduced to 15 sessions for TASE |
+| 52w high proximity too strict | TASE stocks swing wider; 25% cutoff excludes setups that are still valid | Relaxed to 30% for TASE |
+| 52w low recovery too strict | TASE stocks can bounce from deeper drawdowns | Relaxed to 20% for TASE (from 25%) |
+
+### Current Market-Specific Thresholds
+
+| Parameter | US | TASE |
+|-----------|-----|------|
+| Scanner min_price | $5 | ₪1 |
+| Scanner max_price | $2,000 | ₪2,000 |
+| Scanner min_volume (daily) | 500k | 30k |
+| Pre-screen min avg_vol_50 | 200k | 30k |
+| 52w low recovery | ≥25% | ≥20% |
+| 52w high proximity | within 25% | within 30% |
+| MA200 trending sessions | 22 | 15 |
+
+### Remaining TASE-Specific Improvements
+
+- **TA-35 breadth data**: TASE breadth always returns neutral stub. Compute breadth from TA-35 components (% above MA50/MA200). This would unlock richer LLM analysis for Israeli stocks.
+- **Shekel-hedged context**: Include USD/ILS rate trend in TASE prompt. A weakening shekel amplifies downside for imported-cost companies (energy, telecom).
+- **Israeli market calendar**: Account for Passover, Rosh Hashana, and other closures in staleness checks. A 3-day gap is normal around major holidays, not a data problem.
+- **TASE sector mapping**: Israeli sectors differ from US (defense tech, generic pharma, real estate funds are dominant). Build TASE sector-to-company mapping for sector RS scoring.
+
+---
+
+## 8. Additional Workflow Ideas
+
+### 8.1 `relative-strength-leader` (High Value)
+
+**Goal:** Find stocks consistently outperforming their market index over multiple timeframes.
+
+**Pipeline:**
+1. Fetch stock OHLC + benchmark (SPY for US, TA-35 ETF for TASE)
+2. Compute RS ratio = stock return / benchmark return over 3m, 6m, 1y
+3. Score: weighted average (40% 1y, 35% 6m, 25% 3m) — penalise recent decay
+4. Pass threshold: score ≥ 1.10 (10% outperformance)
+5. No LLM needed — pure math output ranked by RS score
+
+**Use case:** Best setups come from market leaders, not average performers. Supplements Stage 2 filter.
+
+---
+
+### 8.2 `golden-cross-alert` (Low Effort)
+
+**Goal:** Detect stocks where MA50 just crossed above MA200 (within last 5 sessions).
+
+**Pipeline:**
+1. Fetch 1y daily OHLC
+2. Compute MA50 and MA200
+3. Check: MA50 < MA200 five sessions ago AND MA50 > MA200 today
+4. Score by: how many sessions since cross (fresher = higher score) + volume on cross day
+5. No LLM — deterministic output
+
+**Use case:** Golden crosses are high-probability continuation signals when accompanied by volume. Fast to compute for the entire watchlist.
+
+---
+
+### 8.3 `52w-high-breakout` (Medium Value)
+
+**Goal:** Identify stocks within 1–3% of their 52-week high on above-average volume — potential breakout imminent.
+
+**Pipeline:**
+1. Fetch data, compute 52w high and current price
+2. Gate: price within 3% of 52w high AND today's volume > 1.5× avg_vol_50
+3. Optionally: confirm with consolidation (low ATR last 5 sessions)
+4. Optional LLM: "Is this a valid breakout or exhaustion near a resistance ceiling?"
+
+**Use case:** Stocks at 52w highs in strong uptrends tend to continue higher. Complements the Stage 2 `near_52w_high` check which just requires being within 25%.
+
+---
+
+### 8.4 `vcp-pure-scanner` (Medium Value)
+
+**Goal:** Scan entire watchlist for VCP patterns without running the full LLM workflow.
+
+**Pipeline:**
+1. Fetch 6m daily for all watchlist symbols (batch yfinance)
+2. Run `detect_vcp_contractions()` for each
+3. Score: `contraction_count × tightening_quality` (deeper = lower score)
+4. Return top 10 VCP setups ranked by score
+5. No LLM — deterministic
+
+**Use case:** VCP is the highest-quality swing setup. Scanning for them across the full watchlist without spending LLM tokens is a fast daily check.
+
+---
+
+### 8.5 `mean-reversion-bounce` (Medium Value)
+
+**Goal:** Find oversold stocks in otherwise strong uptrends (RSI < 35 while above MA200).
+
+**Pipeline:**
+1. Fetch data, compute indicators
+2. Gate: price > MA200 AND RSI14 < 35 AND price still within 30% of 52w high
+3. This filters for pullbacks within uptrends, not broken stocks
+4. LLM prompt: "The stock is in a long-term uptrend but has pulled back. Identify the bounce entry, stop below the pullback low, target near prior high."
+
+**Use case:** Mean reversion in an uptrend is a lower-risk setup with a defined catalyst (oversold bounce). Works especially well in choppy markets.
+
+---
+
+### 8.6 `earnings-gap-continuation` (High Value)
+
+**Goal:** Stocks that gapped up >5% on earnings with above-average volume often continue higher.
+
+**Pipeline:**
+1. Detect if most recent earnings were within last 10 sessions (yfinance `.calendar`)
+2. Compute gap: `open[earnings_day] / close[earnings_day - 1] - 1`
+3. Gate: gap ≥ 5% upside AND earnings day volume ≥ 2× avg_vol_50
+4. Check: price still holding above gap day open (not filled)
+5. LLM: "This stock reported strong earnings and gapped up. Is the gap holding? What is the continuation entry above the gap day high?"
+
+**Use case:** Post-earnings momentum is statistically significant. The key is confirming the gap isn't being filled (which signals distribution).
+
+---
+
+### 8.7 `sector-rotation-leader` (Medium Value)
+
+**Goal:** Identify which sectors are rotating in and find the top stock within each leading sector.
+
+**Pipeline:**
+1. Fetch weekly returns for sector ETFs (XLK, XLF, XLE, XLV, XLI, etc.) — or TA-35 sub-sectors for TASE
+2. Rank sectors by 4-week momentum
+3. For the top 2 sectors: run RS leader scan against watchlist stocks mapped to those sectors
+4. Output: sector ranking + top 1–2 stock picks per sector
+
+**Use case:** Rotating into leading sectors before the crowd is the core of momentum investing. Adds macro layer absent in the current single-stock analysis.
+
+---
+
+### 8.8 `insider-accumulation` (Advanced, External API)
+
+**Goal:** Stocks with significant insider buying in the last 30 days are statistically more likely to rise.
+
+**Pipeline:**
+1. Fetch insider transactions from OpenInsider API (US only) or similar
+2. Filter: purchases ≥ $100k by officers/directors (not option exercises)
+3. Cross-reference with watchlist; flag overlapping symbols
+4. Optionally run full `technical-swing` workflow on flagged symbols automatically
+
+**Use case:** Insider buying is one of the strongest positive signals. Combining it with technical analysis (Stage 2 + VCP) creates high-conviction setups.
+
+**Note:** Requires external API integration (OpenInsider is free for US).
+
+---
+
+### 8.9 `trend-strength-score` (Low Effort, High Impact)
+
+**Goal:** Composite score that ranks all watchlist symbols by overall trend quality — not pass/fail, but a 0–100 score.
+
+**Score components:**
+- Price vs MA50/MA150/MA200: each MA above → +15 pts
+- MA150 > MA200 → +10 pts
+- MA200 trending up → +10 pts
+- RSI14 ∈ [50, 70] → +10 pts (healthy trend, not overbought)
+- Price within 15% of 52w high → +10 pts
+- VCP confirmed → +10 bonus pts
+
+**Use case:** Instead of binary pass/fail, gives a ranked list. Useful for prioritizing which symbols to research first when many pass Stage 2.
+
+---
+
+### 8.10 `failed-breakout-short` (Advanced)
+
+**Goal:** Stocks that failed a 52w high breakout (gapped up then reversed below breakout level) — potential short setup.
+
+**Pipeline:**
+1. Detect: price was within 2% of 52w high in last 5 sessions AND today's price is >5% below that level
+2. Confirm: above-average volume on the reversal day (distribution signal)
+3. LLM: "A breakout attempt failed. Identify the short entry, stop above the failed breakout high, target at support."
+
+**Use case:** Failed breakouts are among the most reliable short setups. Only relevant if user trades short. Requires `direction: short` flag in ticket schema.
+
+---
+
+## 9. Skill Ideas (Claude Prompt Skills)
+
+These are new `.claude/skills/` prompt templates that could be added to the project:
+
+| Skill | Description |
+|-------|-------------|
+| `earnings-analyst` | Reads earnings transcript context, rates the quality of the beat, estimates whether gap will hold |
+| `sector-analyst` | Given a sector name and recent data, rates sector momentum and suggests top themes |
+| `risk-manager` | Reviews a batch of approved tickets, checks portfolio concentration, flags correlated positions |
+| `market-regime-detector` | Classifies current market as trending/choppy/risk-off using SPY/VIX data. Adjusts position sizing recommendations accordingly |
+| `tase-analyst` | Specialized for Israeli market context: shekel exposure, dual-listed stocks (TASE + NASDAQ), geopolitical risk factors |
+| `exit-optimizer` | Given an open position, recommends whether to hold/trim/exit based on current price relative to target and stop |
+| `journal-reviewer` | Reviews past approved/rejected tickets, identifies patterns in what the user approves, tunes future research to their style |

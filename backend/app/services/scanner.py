@@ -20,9 +20,11 @@ MARKET_DEFAULTS = {
         "min_volatility": 0.008,
     },
     "TASE": {
+        # Prices are in ILS (post agorot ÷100 conversion applied in fetch_market_data)
+        # TASE stocks typically trade between 1–2000 ILS
         "min_price": 1.0,
-        "max_price": 500.0,
-        "min_volume": 50_000,
+        "max_price": 2000.0,
+        "min_volume": 30_000,   # TASE is less liquid; lower bar
         "min_volatility": 0.005,
     },
 }
@@ -53,8 +55,10 @@ class ScannerService:
         """
         Fetch OHLC + volume for a list of symbols via yfinance.
         Applies .TA suffix for TASE symbols automatically.
+        TASE prices from yfinance are in agorot (1/100 ILS) — converted here.
         """
         data: dict[str, pd.DataFrame] = {}
+        is_tase = market.upper() == "TASE"
 
         for symbol in symbols:
             yf_sym = _yf_symbol(symbol, market)
@@ -65,6 +69,12 @@ class ScannerService:
                 if hist.empty:
                     logger.warning(f"No data for {yf_sym} — skipping")
                     continue
+
+                # Convert agorot → ILS for TASE
+                if is_tase:
+                    for col in ("Open", "High", "Low", "Close"):
+                        if col in hist.columns:
+                            hist[col] = hist[col] / 100.0
 
                 data[symbol] = hist
             except Exception as e:
