@@ -2,6 +2,7 @@
 .env
 .env.local
 .env.*.local
+backend/.env
 
 # ─── Python / Backend ──────────────────────────────────────────────────────
 __pycache__/
@@ -47,6 +48,12 @@ backend/data/
 # ─── Reference Skills (external repo — clone separately) ─────────────────────
 # git clone https://github.com/tradermonty/claude-trading-skills reference/claude-trading-skills
 reference/claude-trading-skills/
+
+# ─── Claude Code (local-only — personal, not team) ──────────────────────────
+.claude/settings.local.json
+
+# ─── MCP config (no secrets — intentionally tracked) ────────────────────────
+# .mcp.json
 
 # ─── Coverage ────────────────────────────────────────────────────────────────
 coverage/

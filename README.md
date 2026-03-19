@@ -1,175 +1,160 @@
-# Minerva - Trading Research Copilot
+# Minerva — Trading Research Copilot
 
 Automated swing-trading research with cost-efficient multi-market architecture.
 
 ## Overview
 
-Minerva is a web application that combines:
-- **Python screener** (backend) for quantitative filtering via yfinance
-- **LLM workflows** (OpenRouter) for qualitative analysis
-- **Web dashboard** (frontend) for candidate review and research ticket management
+Minerva combines a **Python screener** (deterministic), **LLM workflows** (OpenRouter), and a **web dashboard** (Next.js) to generate structured trade plans from watchlist symbols.
 
-### Supported Markets
-- **US**: S&P 500, Nasdaq
-- **TASE**: Tel Aviv Stock Exchange
+**Supported markets:** US (S&P 500 / Nasdaq) · TASE (Tel Aviv Stock Exchange)
 
-### Key Outputs
-- Structured **Research Tickets** with explicit entry/exit rules
-- Risk-aware position sizing
-- Market-localized currency and hours
+**Current status:** Phase 3 complete — workflow engine live with full `technical-swing` pipeline.
+
+---
 
 ## Project Structure
 
 ```
 Minerva/
 ├── CLAUDE.md               # Claude Code instructions
-├── MinervaPRD.md           # Product specification
 ├── .env.example            # Environment variables template
-├── README.md               # This file
 │
-├── reference/              # Source material (read-only)
-│   └── claude-trading-skills/
+├── docs/                   # Project documentation
+│   ├── API.md              # Full API endpoint reference
+│   ├── ARCHITECTURE.md     # System design & DB schema
+│   ├── WORKFLOW.md         # Workflow engine node docs
+│   ├── DEPLOYMENT.md       # Railway + Vercel setup
+│   ├── MinervaPRD.md       # Product specification
+│   └── DEVELOPMENT_PLAN.md # Phase-by-phase build plan
 │
-├── frontend/               # Next.js App Router
-│   ├── src/
-│   │   ├── app/
-│   │   ├── components/
-│   │   └── lib/
-│   ├── package.json
-│   ├── tsconfig.json
-│   └── ...
+├── frontend/               # Next.js 15 App Router
+│   └── src/
+│       ├── app/            # Pages & layouts
+│       ├── components/     # React components
+│       └── lib/            # API client
 │
-└── backend/                # FastAPI
-    ├── app/
-    │   ├── main.py
-    │   ├── config.py
-    │   ├── routers/
-    │   ├── services/
-    │   ├── models/
-    │   └── utils/
-    ├── requirements.txt
-    ├── pyproject.toml
-    └── ...
+├── backend/                # FastAPI · Python 3.11
+│   ├── app/
+│   │   ├── main.py
+│   │   ├── config.py
+│   │   ├── db.py
+│   │   ├── routers/        # scanner, research, market, watchlist
+│   │   └── services/       # indicators, pre_screen, market_breadth,
+│   │       │               # position_sizer_service, prompts, openrouter_client
+│   │       └── workflows/  # swing_trade.py (6-node pipeline)
+│   ├── scripts/
+│   │   └── migrations/     # 001_initial_schema.sql, 002_ticket_metadata.sql
+│   ├── requirements.txt
+│   └── pyproject.toml
+│
+└── reference/              # Source skills (read-only)
+    └── claude-trading-skills/
 ```
+
+---
 
 ## Quick Start
 
-### Backend Setup
+### Backend
 
 ```bash
 cd backend
-
-# Create virtual environment
-python3 -m venv venv
+python -m venv venv
 source venv/bin/activate  # Windows: venv\Scripts\activate
-
-# Install dependencies
 pip install -r requirements.txt
-
-# Configure environment
-cp ../.env.example .env
-# Edit .env with your API keys
-
-# Run development server
+cp ../.env.example .env   # fill in OPENROUTER_API_KEY, SUPABASE_URL, SUPABASE_KEY
 uvicorn app.main:app --reload --port 8000
 ```
 
-### Frontend Setup
+### Frontend
 
 ```bash
 cd frontend
-
-# Install dependencies
 npm install
-
-# Configure environment
-cp ../.env.example .env.local
-# Set NEXT_PUBLIC_API_URL=http://localhost:8000
-
-# Run development server
+# .env.local: NEXT_PUBLIC_API_URL=http://localhost:8000
 npm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) in your browser.
+---
+
+## Core Workflow: `technical-swing`
+
+```
+POST /research/execute { symbol, market, portfolio_size, max_risk_pct }
+  ↓
+1. Fetch 1yr OHLC + compute MA20/50/150/200, ATR14, RSI14, VCP
+2. Pre-screen: Minervini 7-point Stage 2 gate (FAIL → 422, use force=true)
+3. Fetch market breadth (Monty's CSV — US only)
+4. LLM research via OpenRouter → structured JSON trade plan
+5. Compute position size (fixed-fractional)
+6. Persist research ticket to Supabase
+```
+
+**Output — Research Ticket:**
+
+```json
+{
+  "entry_price": 192.50,
+  "stop_loss": 186.00,
+  "target": 208.00,
+  "position_size": 53,
+  "max_risk": 344.50,
+  "bullish_probability": 0.72,
+  "key_triggers": ["Break above $192.50 pivot", "Volume confirmation"],
+  "status": "pending"
+}
+```
+
+---
+
+## API Summary
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/health` | Health check |
+| GET/POST/DELETE | `/watchlist` | Manage scan universe |
+| POST | `/scanner/scan` | Run screener against watchlist |
+| GET | `/scanner/candidates` | Latest scan results |
+| GET | `/market/history` | OHLC candles (epoch ms, staleness flag) |
+| POST | `/research/execute` | Run full research workflow |
+| GET | `/research/tickets` | List research tickets |
+| PATCH | `/research/tickets/{id}/status` | Approve / reject |
+
+Full reference: [docs/API.md](docs/API.md)
+
+---
 
 ## Environment Variables
 
-Required variables (copy from `.env.example` to `.env`):
-
 ```bash
-# OpenRouter LLM API
-OPENROUTER_API_KEY=sk_your_key_here
+OPENROUTER_API_KEY=sk_or_...
 RESEARCH_MODEL=openai/gpt-4-turbo
-
-# Supabase Database
 SUPABASE_URL=https://your-project.supabase.co
-SUPABASE_KEY=your_key_here
-
-# Frontend
+SUPABASE_KEY=eyJ...
 NEXT_PUBLIC_API_URL=http://localhost:8000
 ```
 
-## Development Workflow
+See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for full setup.
 
-### Adding a New Research Workflow
+---
 
-1. Identify source skill in `reference/claude-trading-skills/skills/`
-2. Create workflow state schema in `backend/app/models/`
-3. Implement workflow handler in `backend/app/services/workflow.py`
-4. Add endpoint in `backend/app/routers/research.py`
-5. Update frontend UI to expose workflow option
-
-### Testing
-
-Backend:
-```bash
-cd backend
-pytest                    # Run all tests
-pytest --cov=app        # With coverage
-```
-
-Frontend:
-```bash
-cd frontend
-npm test                 # Run tests
-npm run lint            # ESLint check
-```
-
-## Deployment
-
-### Frontend (Vercel)
-
-```bash
-# Push to GitHub - Vercel auto-deploys main branch
-# Set environment variables in Vercel dashboard
-```
-
-### Backend (Railway)
-
-```bash
-# Connect GitHub repo to Railway
-# Set environment variables in Railway dashboard
-# Railway auto-detects Python + FastAPI
-```
-
-## Technology Stack
+## Tech Stack
 
 | Layer | Technology |
 |-------|-----------|
-| Frontend | Next.js 15+, React 18, Tailwind CSS, lightweight-charts |
-| Backend | FastAPI, Python 3.9+ |
-| Data | yfinance, pandas |
-| LLM | OpenRouter API |
+| Frontend | Next.js 15, React 18, Tailwind CSS, lightweight-charts |
+| Backend | FastAPI, Python 3.11, yfinance, pandas |
+| LLM | OpenRouter API (configurable model) |
 | Database | Supabase PostgreSQL |
-| Hosting | Vercel (frontend), Railway (backend) |
+| Hosting | Vercel (frontend) · Railway (backend) |
 
-## Key Documentation
+---
 
-- [CLAUDE.md](CLAUDE.md) - Claude Code instructions and best practices
-- [MinervaPRD.md](MinervaPRD.md) - Complete product specification
-- [backend/README.md](backend/README.md) - Backend architecture and API docs
-- [frontend/README.md](frontend/README.md) - Frontend setup and component docs
+## Documentation
 
-## Support
-
-For issues or feature requests, check the project documentation or submit a GitHub issue.
+- [docs/API.md](docs/API.md) — API endpoint reference
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — System design & DB schema
+- [docs/WORKFLOW.md](docs/WORKFLOW.md) — Workflow engine details
+- [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) — Deployment guide
+- [docs/MinervaPRD.md](docs/MinervaPRD.md) — Product specification
+- [docs/DEVELOPMENT_PLAN.md](docs/DEVELOPMENT_PLAN.md) — Build plan & progress

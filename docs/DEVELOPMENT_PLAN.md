@@ -65,46 +65,46 @@ Reference: [MinervaPRD.md](MinervaPRD.md) · [CLAUDE.md](CLAUDE.md)
 ## Phase 3 — Workflow Engine (LangGraph + LLM Integration)
 
 ### 3.1 LangGraph State Machine
-- [ ] Install and wire real `langgraph` dependency
-- [ ] Define `WorkflowState` dataclass for `technical-swing` workflow
-- [ ] Define graph nodes in order:
-  1. `validate_symbol` — deterministic, no LLM
-  2. `fetch_market_data` — yfinance fetch, no LLM
-  3. `deterministic_analysis` — compute trend/volume signals, no LLM
-  4. `llm_research` — call OpenRouter, shortlisted candidates only
-  5. `validate_output` — assert JSON schema before DB write
-  6. `persist_ticket` — write to `research_tickets` table
-- [ ] Compile graph and expose `WorkflowEngine.execute()`
+- [x] Install `langgraph==0.2.76` + `langchain-core==0.2.38` in requirements.txt
+- [x] Define `SwingTradeState` dataclass (`backend/app/services/workflows/swing_trade.py`)
+- [x] Sequential node pipeline:
+  1. `_node_fetch_data` — yfinance + `compute_indicators()`, no LLM
+  2. `_node_pre_screen` — Stage 2 Trend Template + VCP gate, no LLM
+  3. `_node_fetch_breadth` — Monty's uptrend CSV (US only), no LLM
+  4. `_node_llm_research` — OpenRouter JSON call
+  5. `_node_compute_sizing` — deterministic position calculator
+  6. `_node_persist_ticket` — validate + write to `research_tickets`
+- [x] Expose `execute_swing_trade()` async function
 
 ### 3.2 OpenRouter Client
-- [ ] Implement `OpenRouterClient.research()` with:
-  - Strict `response_format: {"type": "json_object"}` enforcement
-  - Retry on HTTP 429 and 5xx (exponential backoff via `tenacity`)
-  - Retry on timeout/transport exceptions
-  - Log raw request/response in debug mode
-- [ ] Cache: check if same `(symbol, market, workflow_type)` was recently run → return cached ticket
-- [ ] Unit test: mock OpenRouter response, assert retry triggers on 429
+- [x] `OpenRouterClient.research()` with strict `json_object` response format + tenacity retry
+- [x] `backend/app/services/indicators.py` — MA20/50/150/200, ATR14, RSI14, 52w high/low, avg vol
+- [x] `backend/app/services/market_breadth.py` — uptrend-analyzer port (CSV fetcher + composite scorer)
+- [x] `backend/app/services/pre_screen.py` — Stage 2 + VCP gate, PASS/FAIL with reasons
+- [x] `backend/app/services/position_sizer_service.py` — fixed-fractional calculator
+- [x] `backend/app/services/prompts.py` — combined prompt (technical-analyst + vcp + breadth + sizer)
 
 ### 3.3 Skill Prompt Adaptation
-- [ ] Read `reference/claude-trading-skills/skills/technical-analyst/SKILL.md`
-- [ ] Port prompt to OpenRouter-compatible format (no Anthropic CLI coupling)
-- [ ] Add US vs TASE localization branches in the prompt (USD/ILS, trading hours)
-- [ ] Define and validate output JSON contract for `technical-swing` workflow:
+- [x] Unified prompt combining technical-analyst, vcp-screener, uptrend-analyzer, position-sizer
+- [x] US vs TASE localization (USD/ILS, trading hours, exchange note)
+- [x] JSON contract for `technical-swing`:
   ```json
   {
-    "entry_price", "entry_rationale",
-    "stop_loss", "target",
-    "position_size", "max_risk",
-    "bullish_probability", "key_triggers", "caveats"
+    "entry_price", "entry_rationale", "stop_loss", "stop_rationale",
+    "target", "target_rationale", "risk_reward_ratio",
+    "bullish_probability", "setup_quality",
+    "key_triggers", "caveats",
+    "trend_context", "volume_context", "market_breadth_context"
   }
   ```
-- [ ] Integration test: run workflow with mocked OpenRouter, assert ticket schema
+- [x] DB migration 002: `metadata JSONB` + `key_triggers TEXT[]` added to research_tickets
 
 ### 3.4 Research Endpoints
-- [ ] `POST /research/execute` — accepts `{symbol, market, workflow_type}`, runs graph, returns ticket
-- [ ] `GET /research/tickets/{ticket_id}` — fetch by UUID from DB
-- [ ] `GET /research/tickets` — list all tickets with optional `market` / `status` filters
-- [ ] `PATCH /research/tickets/{ticket_id}/status` — approve / reject a ticket
+- [x] `POST /research/execute` — `{symbol, market, workflow_type, portfolio_size, max_risk_pct, force}`
+- [x] `GET /research/tickets/{ticket_id}` — fetch by UUID from DB
+- [x] `GET /research/tickets` — list with optional `market` / `status` filters
+- [x] `PATCH /research/tickets/{ticket_id}/status` — approve / reject
+- [x] Pre-screen gate: 422 with check details on fail; user can set `force=true` to override
 
 ---
 

@@ -1,0 +1,29 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm run:*)",
+      "Read(//c/Users/offir/.claude/**)",
+      "Bash(mkdir -p \"c:/Users/offir/Desktop/Projects/Minerva/.claude/skills\")",
+      "Bash(cp -r \"c:/Users/offir/Desktop/Projects/Minerva/.agents/skills/senior-backend\" \"c:/Users/offir/Desktop/Projects/Minerva/.claude/skills/\")",
+      "Bash(cp -r \"c:/Users/offir/Desktop/Projects/Minerva/.agents/skills/senior-frontend\" \"c:/Users/offir/Desktop/Projects/Minerva/.claude/skills/\")",
+      "Bash(cp -r \"c:/Users/offir/Desktop/Projects/Minerva/.agents/skills/vercel-react-best-practices\" \"c:/Users/offir/Desktop/Projects/Minerva/.claude/skills/\")",
+      "Bash(cp -r \"c:/Users/offir/Desktop/Projects/Minerva/.agents/skills/skill-creator\" \"c:/Users/offir/Desktop/Projects/Minerva/.claude/skills/\")",
+      "Bash(gh auth:*)",
+      "Bash(winget install:*)",
+      "Bash(refreshenv)",
+      "Bash(export PATH=\"$PATH:/c/Program Files/GitHub CLI\")",
+      "Bash(gh --version)",
+      "mcp__supabase__list_tables",
+      "mcp__supabase__list_migrations",
+      "mcp__supabase__apply_migration",
+      "mcp__supabase__get_project_url",
+      "mcp__supabase__get_publishable_keys",
+      "Bash(venv/Scripts/python.exe -c \":*)",
+      "Bash(venv/Scripts/python.exe -c \"import yfinance; print\\(yfinance.__version__\\)\")",
+      "Bash(venv/Scripts/pip install:*)"
+    ]
+  },
+  "enabledMcpjsonServers": [
+    "supabase"
+  ]
+}

@@ -25,7 +25,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - Long-term investing, dividends, options trading, statistical arbitrage
 - Authoring proprietary strategies independent of source skill adaptation
 
-See [MinervaPRD.md](MinervaPRD.md) for full product specification.
+See [docs/MinervaPRD.md](docs/MinervaPRD.md) for full product specification.
 
 ## Architecture
 
@@ -129,7 +129,7 @@ All research workflows adapt skills from the reference repository:
 ```
 Minerva/
 ├── CLAUDE.md                  # This file
-├── MinervaPRD.md              # Product specification
+├── docs/MinervaPRD.md              # Product specification
 ├── reference/                 # Source material (read-only)
 │   └── claude-trading-skills/
 │
@@ -369,7 +369,7 @@ Frontend market data endpoint (`/market/history`) normalizes OHLC:
 
 ## References & Resources
 
-- **Product Spec:** [MinervaPRD.md](MinervaPRD.md)
+- **Product Spec:** [docs/MinervaPRD.md](docs/MinervaPRD.md)
 - **Source Skills:** [reference/claude-trading-skills](reference/claude-trading-skills) – read CLAUDE.md and skill-specific SKILL.md files
 - **Frontend Framework:** [Next.js Docs](https://nextjs.org/docs)
 - **Backend Framework:** [FastAPI Docs](https://fastapi.tiangolo.com)
@@ -377,9 +377,69 @@ Frontend market data endpoint (`/market/history`) normalizes OHLC:
 - **Charts:** [lightweight-charts API](https://tradingview.github.io/lightweight-charts/)
 - **LLM API:** [OpenRouter Documentation](https://openrouter.ai/docs)
 
+## Claude Behavior Guidelines
+
+### Core Principles
+- **No Fluff:** Skip pleasantries ("Sure!", "I can help with that"). Go straight to the solution.
+- **Thinking Process:** For complex logic, open with a brief `<thinking>` block — analyze edge cases, bugs, and trade-offs before writing code.
+- **Code Quality:** Clean Code, DRY, SOLID. Python 3.10+ syntax, type hints everywhere, robust error handling and logging by default.
+- **Modularity:** Modular, reusable functions over monolithic blocks.
+
+### Communication Style
+- **Conciseness:** Bullet points and bold for key terms. No long paragraphs.
+- **Directness:** If a request is ambiguous or the stack is suboptimal, say so and suggest better.
+- **No Over-Explaining:** Assume high technical proficiency. Skip basics unless asked.
+
+### Technical Preferences
+- **Architecture:** Repository pattern, Hooks, Services — scalable and maintainable.
+- **Security:** OWASP Top 10 by default — input validation, sanitization at system boundaries.
+- **Performance:** Consider runtime complexity and memory usage.
+
+### Output Format
+- Structure long responses with `##` / `###` headings.
+- Provide complete, copy-pasteable code blocks with file names.
+- Separate distinct answer sections with `---`.
+
+---
+
+## Available Claude Skills & Plugins
+
+### Skills (`.claude/skills/`) — invoke via Skill tool
+- **senior-backend** — FastAPI, async Python, DB optimization, API design
+- **senior-frontend** — Next.js App Router, React, TypeScript, Tailwind
+- **vercel-react-best-practices** — 80+ React performance and pattern rules
+- **skill-creator** — meta-skill for building new skills
+
+### Active Plugins — use proactively when relevant
+- **frontend-design** — production-grade UI components with high design quality
+- **context7** — up-to-date library docs (use for Next.js, FastAPI, Supabase, etc.)
+- **code-simplifier** — refactor/simplify recently written code
+- **code-review** — review PRs or changed code
+- **playwright** — browser automation for E2E testing
+- **claude-md-management** — audit and update CLAUDE.md files
+
+**Rule:** Prefer a skill or plugin over raw generation when the task clearly maps to one.
+
+---
+
 ## Notes for Future Instances
 
 - If the project structure deviates from the target layout, update the "Project Structure" section above
 - When adapting new skills, always verify they are **swing-trading focused** (not dividends, options, long-term, or statistical arb)
 - Keep market-aware defaults (USD/ILS, trading hours) consistent across all workflow nodes
 - Prefer deterministic validation early and LLM calls late in the pipeline
+
+### Codebase State (updated 2026-03-19)
+- **Phase 3 complete:** workflow engine lives in `backend/app/services/workflows/swing_trade.py`
+- **DB migrations applied:** 001 (initial schema) + 002 (adds `metadata JSONB`, `key_triggers TEXT[]` to `research_tickets`)
+- **research_tickets** now has `metadata`, `key_triggers` columns — always include these in inserts
+- **Workflow nodes** (in order): fetch_data → pre_screen → fetch_breadth → llm_research → compute_sizing → persist_ticket
+- **Pre-screen gate** returns 422 with structured JSON on failure; `force=true` param bypasses it
+- **Market breadth** (Monty's CSV) is US-only; TASE always returns a neutral stub — this is expected
+
+### Known Gotchas
+- **TASE yfinance symbols:** Always append `.TA` suffix (e.g., `OPCE` → `OPCE.TA`). Handled in scanner and workflow automatically.
+- **langgraph versions:** Use `langgraph>=1.0.0` + `langchain-core>=0.3.0`. Old pinned versions (0.2.x) cause dependency conflicts.
+- **Windows Unicode in scripts:** Add `sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')` when printing non-ASCII (e.g., ₪, ✓).
+- **Supabase MCP:** Approved via `enabledMcpjsonServers: ["supabase"]` in `.claude/settings.json`. Use `mcp__supabase__apply_migration` for DDL, `mcp__supabase__execute_sql` for queries.
+- **Dev Python env:** Python 3.11 global install (no activated venv in dev shell). `pip install` targets the global interpreter.
