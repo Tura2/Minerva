@@ -9,8 +9,14 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
-        primary: "#1f2937",
-        accent: "#3b82f6",
+        zinc: {
+          950: "#09090b",
+        },
+        accent: "#f59e0b",
+      },
+      fontFamily: {
+        sans: ["IBM Plex Sans", "-apple-system", "BlinkMacSystemFont", "sans-serif"],
+        mono: ["IBM Plex Mono", "Fira Code", "monospace"],
       },
     },
   },

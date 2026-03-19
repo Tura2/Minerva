@@ -123,42 +123,56 @@ Reference: [MinervaPRD.md](MinervaPRD.md) · [CLAUDE.md](CLAUDE.md)
 ## Phase 5 — Frontend UI
 
 ### 5.1 API Integration Layer
-- [ ] Define TypeScript types mirroring backend schemas (`Candidate`, `ResearchTicket`, `Candle`)
-- [ ] Add `api/scanner.ts`, `api/research.ts`, `api/market.ts` wrappers in `src/lib/`
-- [ ] Handle error states and loading states with React `Suspense`-compatible patterns
+- [x] Define TypeScript types mirroring backend schemas (`Candidate`, `ResearchTicket`, `Candle`, `WatchlistItem`, `ExecutionLevels`, `PreScreenError`, `ApiError`)
+- [x] `src/lib/api/scanner.ts` — `runScan()`, `getCandidates()`, `getScanHistory()`
+- [x] `src/lib/api/research.ts` — `executeResearch()`, `listTickets()`, `getTicket()`, `updateTicketStatus()`
+- [x] `src/lib/api/market.ts` — `getHistory()`
+- [x] `src/lib/api/watchlist.ts` — `listWatchlist()`, `addWatchlistItem()`, `removeWatchlistItem()`
+- [x] Typed `ApiError` class with `isPreScreenFailed()` discriminator
 
 ### 5.2 Candidate Queue Page (`/candidates`)
-- [ ] Fetch and display candidates table from `GET /scanner/candidates`
-- [ ] Columns: symbol, market, price, volume, score, timestamp
-- [ ] "Run Scan" button → `POST /scanner/scan` → refresh list
-- [ ] Market selector: US / TASE toggle
+- [x] Fetch and display candidates table from `GET /scanner/candidates`
+- [x] Columns: symbol, market, price, volume, score, timestamp
+- [x] "Run Scan" button → `POST /scanner/scan` → refresh list
+- [x] Market filter: US / TASE / All toggle
+- [x] Research button per row → opens `ResearchModal`
 
 ### 5.3 Research Ticket Page (`/research/[id]`)
-- [ ] Fetch ticket from `GET /research/tickets/{id}`
-- [ ] Display: entry, stop, target, size, risk, rationale, triggers, caveats
-- [ ] Approve / Reject buttons → `PATCH /research/tickets/{id}/status`
-- [ ] Chart integration (see 5.4)
+- [x] Fetch ticket from `GET /research/tickets/{id}`
+- [x] Display: entry, stop, target, size, risk, rationale, triggers, caveats
+- [x] Approve / Reject / Reset buttons → `PATCH /research/tickets/{id}/status`
+- [x] CandlestickChart with execution level overlays
+- [x] Pre-screen checks accordion (collapsed by default)
+- [x] Context sections: entry rationale, trend, volume, breadth
 
 ### 5.4 Candlestick Chart Component
-- [ ] Install and configure `lightweight-charts`
-- [ ] `<CandlestickChart candles={...} />` renders interactive OHLC chart
-- [ ] Overlay execution levels as horizontal lines:
-  - Entry (checkpoint): blue dashed line
-  - Stop loss (support): red line
-  - Target (resistance): green line
-- [ ] Pan, zoom, and fullscreen toggle
-- [ ] Loading skeleton while data fetches
-- [ ] Responsive resize via `ResizeObserver`
+- [x] lightweight-charts v4 with dark theme
+- [x] `<CandlestickChart candles={...} executionLevels={...} />` renders interactive OHLC chart
+- [x] Execution level price lines: entry=blue dashed, stop=red, target=green
+- [x] Responsive via `ResizeObserver`
+- [x] Loading skeleton while data fetches
+- [x] Dynamically imported (no SSR) in ticket page
 
 ### 5.5 Watchlist Page (`/watchlist`)
-- [ ] Display watchlist items from DB
-- [ ] Add symbol to watchlist button
-- [ ] Remove from watchlist
-- [ ] Quick chart preview on hover (optional, v1+)
+- [x] Display watchlist items with market badge and added date
+- [x] Add symbol form: ticker input + market selector (US/TASE) + submit
+- [x] Remove per item with loading state
+- [x] Market filter toggle
 
-### 5.6 Scan History
-- [ ] `GET /scanner/history` endpoint returns recent scan runs
-- [ ] History panel in sidebar or `/history` page
+### 5.6 Research Tickets List (`/research`)
+- [x] Full tickets table with entry/stop/target/size/prob/quality/status columns
+- [x] Market + status filter toggles
+- [x] Click row → navigate to ticket detail
+
+### 5.7 Research Execute Flow
+- [x] `ResearchModal` component: portfolio_size + max_risk_pct inputs with currency-aware labels
+- [x] Pre-screen failure display: failed checks list + "Force Research" bypass button
+- [x] Navigate to ticket page on success
+
+### 5.8 Dashboard (`/`)
+- [x] Stats: watchlist count, candidate count, ticket totals (pending/approved)
+- [x] Recent tickets table with probability bars
+- [x] Quick navigation cards
 
 ---
 
