@@ -1,128 +1,143 @@
 """
-Scanner Service for Symbol Screening.
-
-Fetches market data via yfinance and applies screening filters.
-Supports US (S&P 500, Nasdaq) and TASE markets.
+Scanner Service — fetches OHLC via yfinance, applies screener filters.
+Symbol universe comes from the watchlist_items table (not CSV files).
 """
 
 import yfinance as yf
 import pandas as pd
-from typing import List, Dict, Any, Optional
-from datetime import datetime, timedelta
+from typing import Any
+from datetime import datetime, timezone
 import logging
 
 logger = logging.getLogger(__name__)
+
+# Market-aware filter defaults
+MARKET_DEFAULTS = {
+    "US": {
+        "min_price": 5.0,
+        "max_price": 2000.0,
+        "min_volume": 500_000,
+        "min_volatility": 0.008,
+    },
+    "TASE": {
+        "min_price": 1.0,
+        "max_price": 500.0,
+        "min_volume": 50_000,
+        "min_volatility": 0.005,
+    },
+}
+
+
+def _yf_symbol(symbol: str, market: str) -> str:
+    if market == "TASE" and not symbol.endswith(".TA"):
+        return f"{symbol}.TA"
+    return symbol
 
 
 class ScannerService:
     """Symbol scanning and filtering service."""
 
-    def __init__(self):
-        self.us_symbols: Optional[List[str]] = None
-        self.tase_symbols: Optional[List[str]] = None
-
-    async def load_symbols(self, market: str) -> List[str]:
-        """Load valid symbols for market."""
-        if market == "US" and self.us_symbols is None:
-            # TODO: Load from CSV or S&P 500 list
-            self.us_symbols = []
-        elif market == "TASE" and self.tase_symbols is None:
-            # TODO: Load from CSV or TASE list
-            self.tase_symbols = []
-
-        return self.us_symbols if market == "US" else self.tase_symbols
+    async def load_symbols(self, market: str, db) -> list[str]:
+        """Load scan universe from watchlist_items for the given market."""
+        result = db.table("watchlist_items").select("symbol").eq("market", market).execute()
+        symbols = [row["symbol"] for row in result.data]
+        logger.info(f"Loaded {len(symbols)} symbols from watchlist for market={market}")
+        return symbols
 
     async def fetch_market_data(
         self,
-        symbols: List[str],
-        period: str = "3mo",
-        progress_callback: Optional[callable] = None,
-    ) -> Dict[str, pd.DataFrame]:
+        symbols: list[str],
+        market: str,
+        period: str = "1mo",
+    ) -> dict[str, pd.DataFrame]:
         """
-        Fetch OHLC and volume data for symbols via yfinance.
-
-        Returns:
-        - Dict mapping symbol to DataFrame with OHLC data
+        Fetch OHLC + volume for a list of symbols via yfinance.
+        Applies .TA suffix for TASE symbols automatically.
         """
-        data = {}
+        data: dict[str, pd.DataFrame] = {}
 
-        for i, symbol in enumerate(symbols):
+        for symbol in symbols:
+            yf_sym = _yf_symbol(symbol, market)
             try:
-                ticker = yf.Ticker(symbol)
-                hist = ticker.history(period=period)
+                ticker = yf.Ticker(yf_sym)
+                hist = ticker.history(period=period, auto_adjust=True)
 
                 if hist.empty:
-                    logger.warning(f"No data found for symbol: {symbol}")
+                    logger.warning(f"No data for {yf_sym} — skipping")
                     continue
 
                 data[symbol] = hist
-                logger.info(f"Fetched data for {symbol}")
-
-                if progress_callback:
-                    progress_callback((i + 1) / len(symbols))
-
             except Exception as e:
-                logger.error(f"Error fetching data for {symbol}: {e}")
-                continue
+                logger.error(f"yfinance error for {yf_sym}: {e}")
 
+        logger.info(f"Fetched data for {len(data)}/{len(symbols)} symbols")
         return data
 
     def apply_filters(
         self,
-        data: Dict[str, pd.DataFrame],
-        min_price: float = 5.0,
-        max_price: float = 1000.0,
-        min_volume: int = 100000,
-        min_volatility: float = 0.01,
-    ) -> List[Dict[str, Any]]:
+        data: dict[str, pd.DataFrame],
+        market: str,
+        min_price: float | None = None,
+        max_price: float | None = None,
+        min_volume: int | None = None,
+        min_volatility: float | None = None,
+    ) -> list[dict[str, Any]]:
         """
-        Apply screening filters to symbol data.
-
-        Filters:
-        - Price range
-        - Volume threshold
-        - Volatility range
-
-        Returns:
-        - List of candidates with scores
+        Apply market-aware screener filters.
+        Falls back to market defaults for any unspecified threshold.
         """
+        defaults = MARKET_DEFAULTS.get(market, MARKET_DEFAULTS["US"])
+        min_price = min_price if min_price is not None else defaults["min_price"]
+        max_price = max_price if max_price is not None else defaults["max_price"]
+        min_volume = min_volume if min_volume is not None else defaults["min_volume"]
+        min_volatility = min_volatility if min_volatility is not None else defaults["min_volatility"]
+
         candidates = []
+        rejections: dict[str, str] = {}
 
         for symbol, df in data.items():
             try:
                 latest = df.iloc[-1]
-                price = latest["Close"]
-                volume = latest["Volume"]
-                volatility = df["Close"].pct_change().std()
+                price = float(latest["Close"])
+                volume = float(latest["Volume"])
+                volatility = float(df["Close"].pct_change().std())
 
-                # Apply filters
                 if price < min_price or price > max_price:
+                    rejections[symbol] = f"price {price:.2f} outside [{min_price}, {max_price}]"
                     continue
                 if volume < min_volume:
+                    rejections[symbol] = f"volume {volume:.0f} < {min_volume}"
                     continue
                 if volatility < min_volatility:
+                    rejections[symbol] = f"volatility {volatility:.4f} < {min_volatility}"
                     continue
 
-                # Compute screening score
                 score = self._compute_score(df, price, volume, volatility)
-
                 candidates.append({
                     "symbol": symbol,
-                    "price": float(price),
-                    "volume": float(volume),
-                    "volatility": float(volatility),
-                    "screening_score": score,
+                    "market": market,
+                    "price": round(price, 4),
+                    "volume": int(volume),
+                    "score": round(score, 4),
+                    "screened_at": datetime.now(timezone.utc).isoformat(),
+                    "metadata": {"volatility": round(volatility, 6)},
                 })
 
             except Exception as e:
-                logger.error(f"Error filtering symbol {symbol}: {e}")
-                continue
+                logger.error(f"Filter error for {symbol}: {e}")
 
-        # Sort by score
-        candidates.sort(key=lambda x: x["screening_score"], reverse=True)
+        if rejections:
+            logger.info(f"Rejected {len(rejections)} symbols: {rejections}")
+
+        candidates.sort(key=lambda x: x["score"], reverse=True)
+        logger.info(f"Screener: {len(candidates)} passed / {len(data)} fetched")
         return candidates
 
     def _compute_score(self, df: pd.DataFrame, price: float, volume: float, volatility: float) -> float:
-        """Compute screening score for symbol (simple formula)."""
-        # TODO: Implement sophisticated scoring
-        return volatility * 100
+        """
+        Simple composite score: rewards volatility and relative volume.
+        Volume ratio = latest volume / 20-day avg volume.
+        """
+        avg_volume = df["Close"].tail(20).mean()
+        vol_ratio = volume / avg_volume if avg_volume > 0 else 1.0
+        return (volatility * 50) + (min(vol_ratio, 3.0) * 10)

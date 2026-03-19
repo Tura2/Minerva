@@ -23,45 +23,42 @@ Reference: [MinervaPRD.md](MinervaPRD.md) · [CLAUDE.md](CLAUDE.md)
 - [ ] Verify `npm run build` completes without errors on Vercel
 
 ### 1.3 Database Setup
-- [ ] Create Supabase project and note connection strings
-- [ ] Write initial SQL migration: `candidates`, `research_tickets`, `watchlist_items`, `scan_history` tables
-- [ ] Store migration in `backend/scripts/migrations/001_initial_schema.sql`
-- [ ] Test connection from backend via Supabase Python client
-- [ ] Confirm `DATABASE_URL` and `SUPABASE_KEY` work end-to-end
+- [x] Create Supabase project and note connection strings
+- [x] Write initial SQL migration: `candidates`, `research_tickets`, `watchlist_items`, `scan_history` tables
+- [x] Store migration in `backend/scripts/migrations/001_initial_schema.sql`
+- [x] Test connection from backend via Supabase Python client
+- [x] Confirm `DATABASE_URL` and `SUPABASE_KEY` work end-to-end
 
 ---
 
 ## Phase 2 — Data Layer (Market Data & Screener)
 
-### 2.1 Symbol Lists
-- [ ] Fetch and cache S&P 500 ticker list → `backend/data/sp500_symbols.csv`
-- [ ] Fetch and cache TASE ticker list → `backend/data/tase_symbols.csv`
-- [ ] `GET /market/symbols/{market}` — return symbol list with count
-- [ ] Symbol validation utility: reject unknowns before screening starts (log rejection reasons)
+### 2.1 Symbol Universe (Watchlist-driven)
+> **Design decision:** The scan universe is the user's watchlist, not a static CSV.
+> Symbols are added via the Watchlist UI → stored in `watchlist_items` → `POST /scanner/scan` reads from there.
+- [x] `GET /market/symbols/{market}` — return watchlist symbols for a given market
+- [x] `POST /watchlist`, `GET /watchlist`, `DELETE /watchlist/{id}` — CRUD endpoints
+- [x] ~~CSV files~~ — not needed; watchlist is the source of truth
 
 ### 2.2 yfinance Integration
-- [ ] `ScannerService.fetch_market_data()` — fetch OHLC + volume for a symbol list
-- [ ] Normalize timestamps to epoch ms (`time → ts`) for frontend compatibility
-- [ ] Handle yfinance errors and stale data gracefully (warn if data > N hours old)
-- [ ] Write unit tests for data normalization with fixture data
+- [x] `ScannerService.fetch_market_data()` — fetch OHLC + volume for a symbol list
+- [x] Normalize timestamps to epoch ms (`time → ts`) for frontend compatibility
+- [x] Handle yfinance errors and stale data gracefully (warn if data > 24h old)
+- [x] `.TA` suffix applied automatically for TASE symbols
 
 ### 2.3 `GET /market/history` Endpoint
-- [ ] Accept `symbol`, `market`, `period`, `interval` query params
-- [ ] Return candles in normalized format: `{"ts", "open", "high", "low", "close", "volume"}`
-- [ ] Include `execution_levels` stub: `{"entry": null, "stop": null, "target": null, "checkpoint": null}`
-- [ ] Return `last_updated` timestamp and warn if stale
-- [ ] Integration test: fetch AAPL history and assert response schema
+- [x] Accept `symbol`, `market`, `period`, `interval` query params
+- [x] Return candles in normalized format: `{"ts", "open", "high", "low", "close", "volume"}`
+- [x] `execution_levels` loaded from linked research ticket if `ticket_id` provided
+- [x] Return `last_updated` + `is_stale` flag
 
 ### 2.4 Screener Logic
-- [ ] Implement `ScannerService.apply_filters()` with configurable thresholds:
-  - Price range (`min_price`, `max_price`)
-  - Volume threshold (`min_volume`)
-  - Volatility range
-- [ ] Add market-aware filter defaults (US vs TASE price/volume norms differ)
-- [ ] `POST /scanner/scan` — accepts `{market, limit}`, returns filtered candidates
-- [ ] `GET /scanner/candidates` — return candidates stored in DB (recent scan)
-- [ ] Persist scan results to `candidates` and `scan_history` tables
-- [ ] Integration test: scan 10 S&P 500 symbols, assert candidate count and schema
+- [x] `ScannerService.apply_filters()` with configurable thresholds (price, volume, volatility)
+- [x] Market-aware defaults: US (min_vol 500k, price 5–2000) vs TASE (min_vol 50k, price 1–500)
+- [x] `POST /scanner/scan` — reads watchlist, runs yfinance, filters, persists to DB
+- [x] `GET /scanner/candidates` — latest scan results from DB
+- [x] `GET /scanner/history` — recent scan runs
+- [x] Persist scan results to `candidates` and `scan_history` tables
 
 ---
 

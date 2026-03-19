@@ -1,14 +1,21 @@
-from fastapi import APIRouter, Query
-from typing import Optional, List
-from pydantic import BaseModel
-from datetime import datetime
+"""Market data router — OHLC history and symbol lists."""
 
+import yfinance as yf
+from fastapi import APIRouter, Query, HTTPException
+from pydantic import BaseModel
+from typing import Optional
+from datetime import datetime, timezone
+from app.db import get_db
+import logging
+
+logger = logging.getLogger(__name__)
 router = APIRouter()
+
+# Warn if last candle is older than this many hours
+STALE_THRESHOLD_HOURS = 24
 
 
 class Candle(BaseModel):
-    """OHLC candle with timestamp."""
-
     ts: int  # epoch milliseconds
     open: float
     high: float
@@ -18,8 +25,6 @@ class Candle(BaseModel):
 
 
 class ExecutionLevels(BaseModel):
-    """Entry, exit, and checkpoint levels for a trade."""
-
     entry: Optional[float] = None
     stop: Optional[float] = None
     target: Optional[float] = None
@@ -27,47 +32,112 @@ class ExecutionLevels(BaseModel):
 
 
 class MarketHistoryResponse(BaseModel):
-    """Market history response with normalized OHLC data."""
-
     symbol: str
     market: str
-    candles: List[Candle]
+    candles: list[Candle]
     execution_levels: ExecutionLevels
     last_updated: str
+    is_stale: bool = False
+
+
+def _yf_symbol(symbol: str, market: str) -> str:
+    """Append .TA suffix for TASE symbols if not already present."""
+    if market == "TASE" and not symbol.endswith(".TA"):
+        return f"{symbol}.TA"
+    return symbol
+
+
+def _normalize_candles(df) -> list[Candle]:
+    """Convert yfinance DataFrame to list of Candle with epoch-ms timestamps."""
+    candles = []
+    for ts, row in df.iterrows():
+        # ts is a pandas Timestamp (tz-aware); convert to epoch ms
+        epoch_ms = int(ts.timestamp() * 1000)
+        candles.append(Candle(
+            ts=epoch_ms,
+            open=round(float(row["Open"]), 4),
+            high=round(float(row["High"]), 4),
+            low=round(float(row["Low"]), 4),
+            close=round(float(row["Close"]), 4),
+            volume=float(row["Volume"]) if row["Volume"] else None,
+        ))
+    return candles
 
 
 @router.get("/history", response_model=MarketHistoryResponse)
 async def get_market_history(
     symbol: str = Query(...),
     market: str = Query(...),
-    period: str = Query("3mo"),  # e.g., "1mo", "3mo", "1y"
-    interval: str = Query("1d"),  # e.g., "1d", "1h"
+    period: str = Query("3mo"),
+    interval: str = Query("1d"),
+    ticket_id: Optional[str] = Query(None, description="Attach execution levels from a research ticket"),
 ):
     """
-    Fetch market history for a symbol.
-
-    Returns:
-    - Candle data normalized for frontend chart rendering
-    - Execution levels (entry, stop, target, checkpoint) from linked ticket
-    - Last updated timestamp
+    Fetch OHLC history for a symbol via yfinance.
+    Returns candles normalized for lightweight-charts (epoch ms timestamps).
+    Optionally overlays execution levels from a research ticket.
     """
-    # TODO: Implement yfinance fetching and normalization
-    return {
-        "symbol": symbol,
-        "market": market,
-        "candles": [],
-        "execution_levels": {},
-        "last_updated": datetime.utcnow().isoformat(),
-    }
+    market = market.upper()
+    yf_sym = _yf_symbol(symbol.upper(), market)
+
+    try:
+        ticker = yf.Ticker(yf_sym)
+        df = ticker.history(period=period, interval=interval, auto_adjust=True)
+    except Exception as e:
+        logger.error(f"yfinance error for {yf_sym}: {e}")
+        raise HTTPException(status_code=502, detail=f"Failed to fetch market data: {e}")
+
+    if df.empty:
+        raise HTTPException(status_code=404, detail=f"No data found for {symbol} on {market}")
+
+    candles = _normalize_candles(df)
+
+    # Check staleness
+    last_ts_ms = candles[-1].ts
+    age_hours = (datetime.now(timezone.utc).timestamp() * 1000 - last_ts_ms) / 3_600_000
+    is_stale = age_hours > STALE_THRESHOLD_HOURS
+    if is_stale:
+        logger.warning(f"{symbol} data is {age_hours:.1f}h old (threshold: {STALE_THRESHOLD_HOURS}h)")
+
+    # Execution levels: pull from linked research ticket if provided
+    execution_levels = ExecutionLevels()
+    if ticket_id:
+        try:
+            db = get_db()
+            result = db.table("research_tickets").select(
+                "entry_price,stop_loss,target"
+            ).eq("id", ticket_id).single().execute()
+            if result.data:
+                t = result.data
+                execution_levels = ExecutionLevels(
+                    entry=t.get("entry_price"),
+                    stop=t.get("stop_loss"),
+                    target=t.get("target"),
+                )
+        except Exception as e:
+            logger.warning(f"Could not load execution levels for ticket {ticket_id}: {e}")
+
+    return MarketHistoryResponse(
+        symbol=symbol.upper(),
+        market=market,
+        candles=candles,
+        execution_levels=execution_levels,
+        last_updated=datetime.now(timezone.utc).isoformat(),
+        is_stale=is_stale,
+    )
 
 
 @router.get("/symbols/{market}")
 async def get_market_symbols(market: str):
     """
-    Get list of valid symbols for a market.
-
-    - US: S&P 500 tickers
-    - TASE: Tel Aviv Stock Exchange tickers
+    Return watchlist symbols for a given market.
+    These are the user's tracked symbols and serve as the scan universe.
     """
-    # TODO: Load from CSV or cache
-    return {"market": market, "symbols": [], "count": 0}
+    market = market.upper()
+    if market not in ("US", "TASE"):
+        raise HTTPException(status_code=400, detail="market must be US or TASE")
+
+    db = get_db()
+    result = db.table("watchlist_items").select("symbol").eq("market", market).execute()
+    symbols = [row["symbol"] for row in result.data]
+    return {"market": market, "symbols": symbols, "count": len(symbols)}
