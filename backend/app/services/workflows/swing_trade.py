@@ -21,13 +21,16 @@ from __future__ import annotations
 import logging
 import uuid
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
 import yfinance as yf
 import pandas as pd
 
+from pydantic import ValidationError
+
 from app.config import settings
+from app.models.ticket_validator import TicketOutputValidator
 from app.services.indicators import compute_indicators
 from app.services.market_breadth import get_market_breadth
 from app.services.openrouter_client import OpenRouterClient
@@ -75,6 +78,7 @@ async def execute_swing_trade(
     max_risk_pct: float,
     db,  # Supabase client
     force_research: bool = False,
+    force_refresh: bool = False,
 ) -> Dict[str, Any]:
     """
     Run the full swing trade workflow and persist the ticket.
@@ -86,6 +90,7 @@ async def execute_swing_trade(
         max_risk_pct:  Max risk per trade as % (e.g. 1.0)
         db:            Supabase client instance
         force_research: If True, skip pre-screen gate and run LLM anyway
+        force_refresh:  If True, skip 24h deduplication check and run fresh
 
     Returns:
         research_ticket row as dict
@@ -94,6 +99,27 @@ async def execute_swing_trade(
         PreScreenFailed: if pre-screen fails and force_research=False
         WorkflowError:   on data fetch or LLM errors
     """
+    # ── Deduplication check: return cached ticket if run within last 24h ─────
+    if not force_refresh:
+        cutoff = (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat()
+        dedup_result = (
+            db.table("research_tickets")
+            .select("*")
+            .eq("symbol", symbol.upper())
+            .eq("market", market.upper())
+            .eq("workflow_type", "technical-swing")
+            .gte("created_at", cutoff)
+            .order("created_at", desc=True)
+            .limit(1)
+            .execute()
+        )
+        if dedup_result.data:
+            cached = dedup_result.data[0]
+            logger.info(
+                f"[swing_trade] Dedup hit for {symbol}/{market}: returning ticket {cached.get('id')}"
+            )
+            return cached
+
     state = SwingTradeState(
         symbol=symbol,
         market=market,
@@ -254,6 +280,21 @@ async def _node_persist_ticket(state: SwingTradeState, db) -> Dict[str, Any]:
     llm = state.llm_raw
     sizing = state.sizing
     currency = sizing.get("currency", "USD" if state.market.upper() == "US" else "ILS")
+
+    # ── Output validation (fail loudly before DB write) ──────────────────────
+    try:
+        TicketOutputValidator(
+            entry_price=float(llm.get("entry_price") or 0),
+            stop_loss=float(llm.get("stop_loss") or 0),
+            target=float(llm.get("target") or 0),
+            risk_reward_ratio=float(llm.get("risk_reward_ratio") or 0),
+            bullish_probability=float(llm.get("bullish_probability") or 0),
+            position_size=int(sizing.get("shares") or 0),
+            key_triggers=llm.get("key_triggers") or [],
+        )
+    except ValidationError as e:
+        errors = "; ".join(f"{err['loc'][0]}: {err['msg']}" for err in e.errors())
+        raise WorkflowError(f"Ticket output validation failed: {errors}") from e
 
     metadata = {
         "entry_rationale": llm.get("entry_rationale", ""),

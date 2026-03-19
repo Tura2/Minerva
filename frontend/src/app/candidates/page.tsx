@@ -1,8 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { getCandidates, runScan } from "@/lib/api/scanner";
-import type { Candidate, Market } from "@/lib/types";
+import { getCandidates, getScanHistory, runScan } from "@/lib/api/scanner";
+import type { Candidate, Market, ScanHistoryItem } from "@/lib/types";
 import { ApiError } from "@/lib/types";
 import ResearchModal from "@/components/ResearchModal";
 
@@ -65,6 +65,8 @@ export default function CandidatesPage() {
   const [banner, setBanner] = useState<{ text: string; ok: boolean } | null>(null);
   const [filterMarket, setFilterMarket] = useState<Market | "ALL">("ALL");
   const [scanMarket, setScanMarket] = useState<Market>("US");
+  const [scanHistory, setScanHistory] = useState<ScanHistoryItem[]>([]);
+  const [historyExpanded, setHistoryExpanded] = useState(false);
 
   // Single-symbol search
   const [searchSymbol, setSearchSymbol] = useState("");
@@ -83,8 +85,18 @@ export default function CandidatesPage() {
     }
   }
 
+  async function loadHistory() {
+    try {
+      const data = await getScanHistory(undefined, 20);
+      setScanHistory(data);
+    } catch {
+      // non-critical, silently ignore
+    }
+  }
+
   useEffect(() => {
     loadCandidates(filterMarket === "ALL" ? undefined : filterMarket);
+    loadHistory();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filterMarket]);
 
@@ -96,6 +108,7 @@ export default function CandidatesPage() {
       const result = await runScan({ market: scanMarket, limit: 200 });
       const fresh = await getCandidates(filterMarket === "ALL" ? undefined : filterMarket, 200);
       setCandidates(fresh);
+      loadHistory();
       setBanner({
         ok: true,
         text: `Scan complete — ${result.total_passed} of ${result.total_in_watchlist} watchlist symbols passed.`,
@@ -279,6 +292,82 @@ export default function CandidatesPage() {
       {/* Banner */}
       {banner && <Banner msg={banner} onDismiss={() => setBanner(null)} />}
 
+      {/* Scan History */}
+      {scanHistory.length > 0 && (
+        <div
+          style={{
+            background: "var(--surface)",
+            border: "1px solid var(--border)",
+            borderRadius: "6px",
+            overflow: "hidden",
+            boxShadow: "var(--shadow)",
+          }}
+        >
+          <button
+            onClick={() => setHistoryExpanded((x) => !x)}
+            className="w-full flex items-center justify-between px-4 py-2 text-xs font-semibold uppercase tracking-widest"
+            style={{
+              color: "var(--text-dim)",
+              background: "none",
+              border: "none",
+              cursor: "pointer",
+              borderBottom: historyExpanded ? "1px solid var(--border)" : "none",
+            }}
+          >
+            <span>Recent Scans</span>
+            <span>{historyExpanded ? "▲" : "▼"}</span>
+          </button>
+
+          {historyExpanded && (
+            <div>
+              {(historyExpanded ? scanHistory.slice(0, 20) : scanHistory.slice(0, 5)).map((h) => (
+                <div
+                  key={h.id}
+                  className="grid items-center px-4 py-2 text-xs"
+                  style={{
+                    gridTemplateColumns: "60px 1fr 80px 160px",
+                    borderBottom: "1px solid var(--border-subtle)",
+                    color: "var(--text-dim)",
+                  }}
+                >
+                  <span
+                    className="px-1.5 py-0.5 text-xs font-semibold rounded w-fit"
+                    style={{
+                      background: h.market === "US" ? "var(--blue-dim)" : "var(--accent-dim)",
+                      color: h.market === "US" ? "var(--blue)" : "var(--accent)",
+                    }}
+                  >
+                    {h.market}
+                  </span>
+                  <span className="font-mono" style={{ color: "var(--text)" }}>
+                    {h.candidate_count} / {h.total_in_watchlist || "?"} passed
+                  </span>
+                  <span
+                    className="px-1 py-0.5 rounded text-center"
+                    style={{
+                      background: h.status === "completed" ? "var(--green-dim)" : "var(--red-dim)",
+                      color: h.status === "completed" ? "var(--green)" : "var(--red)",
+                    }}
+                  >
+                    {h.status}
+                  </span>
+                  <span style={{ textAlign: "right" }}>{formatDate(h.ran_at)}</span>
+                </div>
+              ))}
+              {!historyExpanded && scanHistory.length > 5 && (
+                <button
+                  onClick={() => setHistoryExpanded(true)}
+                  className="w-full py-2 text-xs"
+                  style={{ color: "var(--text-dim)", background: "none", border: "none", cursor: "pointer" }}
+                >
+                  View all {scanHistory.length} scans ▼
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Market filter */}
       <div className="flex gap-1">
         {(["ALL", "US", "TASE"] as const).map((m) => (
@@ -379,7 +468,10 @@ export default function CandidatesPage() {
                 <ScoreBar score={c.score ?? 0} />
               </div>
 
-              <span className="text-xs" style={{ color: "var(--text-dim)" }}>
+              <span className="text-xs flex items-center gap-1" style={{ color: "var(--text-dim)" }}>
+                {c.is_stale && (
+                  <span title="Data older than 24h" style={{ color: "var(--accent)" }}>⚠</span>
+                )}
                 {formatDate(c.screened_at)}
               </span>
 

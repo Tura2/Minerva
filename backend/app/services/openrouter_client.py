@@ -10,6 +10,7 @@ Handles:
 
 import httpx
 import json
+import re
 from typing import Dict, Any, Optional
 from tenacity import retry, stop_after_attempt, wait_exponential
 from app.config import settings
@@ -72,10 +73,23 @@ class OpenRouterClient:
                 response.raise_for_status()
 
                 result = response.json()
-                content = result["choices"][0]["message"]["content"]
+                message = result["choices"][0]["message"]
+                content = message.get("content")
 
-                # Validate and parse JSON response
-                parsed = json.loads(content)
+                if content is None:
+                    # Some free models (e.g. stepfun) don't support json_object
+                    # and return content=null. Log full response for debugging.
+                    logger.error(
+                        f"OpenRouter returned null content. Full response: {result}"
+                    )
+                    raise ValueError(
+                        f"Model '{self.model}' returned null content. "
+                        "It may not support response_format=json_object. "
+                        "Try switching RESEARCH_MODEL to a model that supports JSON mode."
+                    )
+
+                # Try direct JSON parse first; fall back to extracting from markdown fence
+                parsed = _extract_json(content)
                 logger.info(f"OpenRouter research completed for model: {self.model}")
                 return parsed
 
@@ -83,11 +97,39 @@ class OpenRouterClient:
             logger.error(f"OpenRouter API error: {e.status_code} {e.response.text}")
             raise
         except json.JSONDecodeError as e:
-            logger.error(f"Failed to parse OpenRouter response as JSON: {e}")
+            logger.error(f"Failed to parse OpenRouter response as JSON: {e}\nContent: {content!r}")
             raise
         except Exception as e:
             logger.error(f"OpenRouter client error: {e}")
             raise
+
+
+def _extract_json(text: str) -> Dict[str, Any]:
+    """
+    Parse JSON from LLM response. Handles:
+    1. Plain JSON string
+    2. JSON wrapped in markdown code fence  ```json ... ```
+    """
+    text = text.strip()
+
+    # Try direct parse
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        pass
+
+    # Try extracting from ```json ... ``` or ``` ... ``` block
+    match = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", text, re.DOTALL)
+    if match:
+        return json.loads(match.group(1))
+
+    # Last resort: find the outermost { } in the text
+    start = text.find("{")
+    end = text.rfind("}")
+    if start != -1 and end != -1 and end > start:
+        return json.loads(text[start : end + 1])
+
+    raise json.JSONDecodeError("No JSON object found in response", text, 0)
 
 
 # Singleton instance

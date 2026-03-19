@@ -9,9 +9,9 @@ import { ApiError } from "@/lib/types";
 // ── Symbol icon ──────────────────────────────────────────────────────────────
 
 const SYMBOL_COLORS = [
-  "#3b82f6", "#8b5cf6", "#ec4899", "#f59e0b", "#10b981",
-  "#f97316", "#06b6d4", "#84cc16", "#6366f1", "#14b8a6",
-  "#e11d48", "#7c3aed", "#0891b2", "#65a30d", "#b45309",
+  "#3b82f6", "#8b5cf6", "#57c1d5", "#10b981", "#06b6d4",
+  "#6366f1", "#14b8a6", "#84cc16", "#0ea5e9", "#22d3ee",
+  "#a78bfa", "#34d399", "#38bdf8", "#7c3aed", "#0891b2",
 ];
 
 function symbolColor(symbol: string): string {
@@ -33,7 +33,7 @@ function SymbolIcon({ symbol }: { symbol: string }) {
     return (
       <span
         className="inline-flex items-center justify-center shrink-0 rounded-full text-xs font-bold"
-        style={{ width: 32, height: 32, background: color, color: "#fff" }}
+        style={{ width: 28, height: 28, background: color, color: "#fff" }}
       >
         {initials}
       </span>
@@ -45,8 +45,8 @@ function SymbolIcon({ symbol }: { symbol: string }) {
     <img
       src={src}
       alt={symbol}
-      width={32}
-      height={32}
+      width={28}
+      height={28}
       className="rounded-full shrink-0 object-cover"
       style={{ background: color }}
       onError={() => setFailed(true)}
@@ -319,9 +319,9 @@ export default function WatchlistPage() {
       >
         {/* Header */}
         <div
-          className="grid items-center px-4 py-2 text-xs font-semibold uppercase tracking-widest"
+          className="grid items-center px-4 py-2.5 text-xs font-semibold uppercase tracking-widest"
           style={{
-            gridTemplateColumns: "44px 1fr 72px 90px 110px 36px",
+            gridTemplateColumns: "40px 1fr 76px 100px 120px 36px",
             borderBottom: "1px solid var(--border)",
             color: "var(--text-dim)",
           }}
@@ -352,14 +352,16 @@ export default function WatchlistPage() {
           items.map((item) => (
             <div
               key={item.id}
-              className="grid items-center px-4 py-3 transition-colors"
+              className="grid items-center px-4 py-2 transition-colors"
               style={{
-                gridTemplateColumns: "44px 1fr 72px 90px 110px 36px",
+                gridTemplateColumns: "40px 1fr 76px 100px 120px 36px",
                 borderBottom: "1px solid var(--border-subtle)",
               }}
             >
               {/* Icon */}
-              <SymbolIcon symbol={item.symbol} />
+              <div className="flex items-center justify-center">
+                <SymbolIcon symbol={item.symbol} />
+              </div>
 
               {/* Symbol */}
               <div>

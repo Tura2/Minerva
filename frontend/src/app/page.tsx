@@ -173,7 +173,7 @@ export default function HomePage() {
               label="Pending"
               value={pendingCount}
               href="/research?status=pending"
-              accent="#f59e0b"
+              accent="var(--accent)"
             />
             <StatCard
               label="Approved"

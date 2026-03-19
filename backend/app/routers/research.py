@@ -29,6 +29,7 @@ class ResearchRequest(BaseModel):
     portfolio_size: float = Field(..., gt=0, description="Account size in local currency")
     max_risk_pct: float = Field(..., gt=0, le=10, description="Max risk per trade as % (e.g. 1.0)")
     force: bool = Field(False, description="Skip pre-screen gate and force LLM research")
+    force_refresh: bool = Field(False, description="Bypass 24h dedup check and run fresh research")
 
 
 class PreScreenFailedResponse(BaseModel):
@@ -55,6 +56,7 @@ class TicketOut(BaseModel):
     key_triggers: Optional[List[str]] = None
     status: str
     created_at: Optional[str] = None
+    updated_at: Optional[str] = None
     metadata: Optional[Dict[str, Any]] = None
 
 
@@ -97,6 +99,7 @@ async def execute_research(request: ResearchRequest):
             max_risk_pct=request.max_risk_pct,
             db=db,
             force_research=request.force,
+            force_refresh=request.force_refresh,
         )
         return ticket
 

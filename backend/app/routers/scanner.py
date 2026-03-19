@@ -3,7 +3,7 @@
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 from typing import Optional
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from app.services.scanner import ScannerService
 from app.db import get_db
 import logging
@@ -30,6 +30,7 @@ class CandidateOut(BaseModel):
     volume: Optional[int] = None
     score: Optional[float] = None
     screened_at: Optional[str] = None
+    is_stale: bool = False
 
 
 class ScanResponse(BaseModel):
@@ -58,7 +59,16 @@ async def run_scan(req: ScanRequest):
 
     # 1. Resolve scan universe: explicit list or watchlist
     if req.symbols:
-        symbols = [s.upper() for s in req.symbols]
+        # Normalize: strip .TA suffix (the scanner service re-adds it for yfinance).
+        # If a symbol ends with .TA, it must be TASE regardless of the market param.
+        raw = [s.upper().strip() for s in req.symbols]
+        symbols = []
+        for s in raw:
+            if s.endswith(".TA"):
+                symbols.append(s[:-3])   # strip suffix — stored without it
+                market = "TASE"           # infer market from suffix
+            else:
+                symbols.append(s)
     else:
         symbols = await scanner.load_symbols(market, db)
         if not symbols:
@@ -101,6 +111,7 @@ async def run_scan(req: ScanRequest):
         db.table("scan_history").update({
             "status": "completed",
             "candidate_count": len(candidates),
+            "total_in_watchlist": len(symbols),
             "ran_at": ran_at,
         }).eq("id", scan_id).execute()
 
@@ -124,21 +135,48 @@ async def get_recent_candidates(
     market: Optional[str] = Query(None),
     limit: int = Query(50, le=200),
 ):
-    """Return candidates from the most recent scan, optionally filtered by market."""
+    """
+    Return the most recent screening result per symbol+market combination.
+    Aggregates across ALL scan runs so that single-symbol scans don't wipe
+    out previously scanned watchlist candidates.
+    """
     db = get_db()
 
-    # Find the most recent completed scan
-    scan_query = db.table("scan_history").select("id").eq("status", "completed").order("ran_at", desc=True)
+    # Fetch recent candidates ordered by screened_at, then deduplicate in Python
+    # (most recent entry per symbol+market wins). This ensures single-symbol scans
+    # don't displace watchlist candidates from previous runs.
+    q = db.table("candidates").select("*").order("screened_at", desc=True)
     if market:
-        scan_query = scan_query.eq("market", market.upper())
-    scan_result = scan_query.limit(1).execute()
+        q = q.eq("market", market.upper())
+    all_rows = q.limit(limit * 10).execute().data  # fetch extra to allow dedup
 
-    if not scan_result.data:
-        return []
+    # Deduplicate: keep only the most recent entry per (symbol, market)
+    seen: set[tuple] = set()
+    deduped = []
+    for row in all_rows:
+        key = (row["symbol"], row["market"])
+        if key not in seen:
+            seen.add(key)
+            deduped.append(row)
+        if len(deduped) >= limit:
+            break
 
-    scan_id = scan_result.data[0]["id"]
-    result = db.table("candidates").select("*").eq("scan_id", scan_id).order("score", desc=True).limit(limit).execute()
-    return result.data
+    # Sort by score descending
+    deduped.sort(key=lambda r: r.get("score") or 0, reverse=True)
+
+    stale_cutoff = datetime.now(timezone.utc) - timedelta(hours=24)
+    rows = []
+    for row in deduped:
+        screened_at = row.get("screened_at")
+        is_stale = False
+        if screened_at:
+            try:
+                dt = datetime.fromisoformat(screened_at.replace("Z", "+00:00"))
+                is_stale = dt < stale_cutoff
+            except (ValueError, AttributeError):
+                pass
+        rows.append({**row, "is_stale": is_stale})
+    return rows
 
 
 @router.get("/history")

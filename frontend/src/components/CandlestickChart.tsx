@@ -41,7 +41,7 @@ export default function CandlestickChart({
       layout: {
         background: { type: ColorType.Solid, color: "#18181b" },
         textColor: "#a1a1aa",
-        fontFamily: "'IBM Plex Mono', monospace",
+        fontFamily: "'JetBrains Mono', 'IBM Plex Mono', monospace",
         fontSize: 11,
       },
       grid: {

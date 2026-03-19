@@ -19,6 +19,7 @@ export interface Candidate {
   volume: number;
   score: number;
   screened_at: string;
+  is_stale?: boolean;
 }
 
 export interface ScanResult {
@@ -34,7 +35,9 @@ export interface ScanHistoryItem {
   id: string;
   market: Market;
   candidate_count: number;
+  total_in_watchlist: number;
   ran_at: string;
+  status: string;
 }
 
 export interface Candle {
@@ -129,6 +132,7 @@ export interface ExecuteResearchRequest {
   portfolio_size: number;
   max_risk_pct: number;
   force?: boolean;
+  force_refresh?: boolean;
 }
 
 export interface PreScreenError {

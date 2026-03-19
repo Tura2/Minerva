@@ -10,7 +10,7 @@ import type { Candle, ExecutionLevels, ResearchTicket, TicketStatus } from "@/li
 // Dynamically import CandlestickChart to avoid SSR issues with DOM APIs
 const CandlestickChart = dynamic(() => import("@/components/CandlestickChart"), {
   ssr: false,
-  loading: () => <div className="skeleton" style={{ height: 420 }} />,
+  loading: () => <div className="skeleton" style={{ height: 520 }} />,
 });
 
 const CHECK_LABELS: Record<string, string> = {
@@ -75,14 +75,14 @@ function PriceStat({
       style={{
         background: "var(--surface-2)",
         border: "1px solid var(--border)",
-        borderRadius: "3px",
+        borderRadius: "4px",
       }}
     >
-      <p className="text-xs uppercase tracking-widest mb-1" style={{ color: "var(--text-dim)" }}>
+      <p className="text-xs uppercase tracking-widest mb-1.5" style={{ color: "var(--text-dim)" }}>
         {label}
       </p>
       <p
-        className="font-mono text-lg font-semibold"
+        className="font-mono text-xl font-semibold"
         style={{ color: color ?? "var(--text)" }}
       >
         {value}
@@ -93,9 +93,9 @@ function PriceStat({
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <div className="space-y-2">
+    <div className="space-y-3">
       <h3
-        className="text-xs font-mono uppercase tracking-widest pb-1"
+        className="text-xs font-mono uppercase tracking-widest pb-2"
         style={{ color: "var(--text-dim)", borderBottom: "1px solid var(--border-subtle)" }}
       >
         {title}
@@ -114,6 +114,20 @@ export default function TicketClient({ id }: { id: string }) {
   const [error, setError] = useState<string | null>(null);
   const [updating, setUpdating] = useState(false);
   const [preScreenOpen, setPreScreenOpen] = useState(false);
+  const [fsMode, setFsMode] = useState(false);
+  const [screenH, setScreenH] = useState(800);
+
+  useEffect(() => {
+    setScreenH(window.innerHeight);
+    function onResize() { setScreenH(window.innerHeight); }
+    function onKey(e: KeyboardEvent) { if (e.key === "Escape") setFsMode(false); }
+    window.addEventListener("resize", onResize);
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("resize", onResize);
+      window.removeEventListener("keydown", onKey);
+    };
+  }, []);
 
   useEffect(() => {
     async function load() {
@@ -167,12 +181,12 @@ export default function TicketClient({ id }: { id: string }) {
     return (
       <div className="space-y-4">
         <div className="skeleton h-8 w-48 rounded" />
-        <div className="skeleton h-[420px] rounded" />
         <div className="grid grid-cols-3 gap-3">
-          {Array.from({ length: 6 }).map((_, i) => (
-            <div key={i} className="skeleton h-20 rounded" />
+          {Array.from({ length: 3 }).map((_, i) => (
+            <div key={i} className="skeleton h-24 rounded" />
           ))}
         </div>
+        <div className="skeleton h-[520px] rounded" />
       </div>
     );
   }
@@ -196,6 +210,22 @@ export default function TicketClient({ id }: { id: string }) {
   const prob = Math.round(ticket.bullish_probability * 100);
   const meta = ticket.metadata ?? {};
   const rr = meta.risk_reward_ratio ? meta.risk_reward_ratio.toFixed(1) : "—";
+  const probColor = prob >= 65 ? "var(--green)" : prob >= 50 ? "var(--accent)" : "var(--red)";
+
+  const ChartLegend = () => (
+    <div className="flex items-center gap-5 mt-2 px-1">
+      {[
+        { color: "#3b82f6", style: "dashed", label: `Entry ${sym}${ticket.entry_price.toFixed(2)}` },
+        { color: "#ef4444", style: "solid", label: `Stop ${sym}${ticket.stop_loss.toFixed(2)}` },
+        { color: "#22c55e", style: "solid", label: `Target ${sym}${ticket.target.toFixed(2)}` },
+      ].map((l) => (
+        <div key={l.label} className="flex items-center gap-2">
+          <div className="w-5 h-0" style={{ border: `1.5px ${l.style} ${l.color}` }} />
+          <span className="text-xs font-mono" style={{ color: "var(--text-dim)" }}>{l.label}</span>
+        </div>
+      ))}
+    </div>
+  );
 
   return (
     <div className="space-y-6">
@@ -203,23 +233,14 @@ export default function TicketClient({ id }: { id: string }) {
       <div className="flex items-start justify-between flex-wrap gap-4">
         <div>
           <div className="flex items-center gap-2 mb-1">
-            <Link
-              href="/research"
-              className="text-xs font-mono"
-              style={{ color: "var(--text-dim)" }}
-            >
+            <Link href="/research" className="text-xs font-mono" style={{ color: "var(--text-dim)" }}>
               Research
             </Link>
             <span style={{ color: "var(--text-dim)" }}>/</span>
-            <span className="text-xs font-mono" style={{ color: "var(--text-muted)" }}>
-              {ticket.symbol}
-            </span>
+            <span className="text-xs font-mono" style={{ color: "var(--text-muted)" }}>{ticket.symbol}</span>
           </div>
           <div className="flex items-center gap-3 flex-wrap">
-            <h1
-              className="font-mono text-2xl font-semibold tracking-wide"
-              style={{ color: "var(--text)" }}
-            >
+            <h1 className="font-mono text-2xl font-semibold tracking-wide" style={{ color: "var(--text)" }}>
               {ticket.symbol}
             </h1>
             <span
@@ -235,8 +256,7 @@ export default function TicketClient({ id }: { id: string }) {
             {meta.setup_quality && <QualityBadge q={meta.setup_quality} />}
           </div>
           <p className="text-xs mt-1 font-mono" style={{ color: "var(--text-dim)" }}>
-            {new Date(ticket.created_at).toLocaleString()} · {ticket.workflow_type} ·{" "}
-            {meta.research_model ?? ""}
+            {new Date(ticket.created_at).toLocaleString()} · {ticket.workflow_type} · {meta.research_model ?? ""}
           </p>
         </div>
 
@@ -250,7 +270,7 @@ export default function TicketClient({ id }: { id: string }) {
               style={{
                 background: "var(--red-dim)",
                 border: "1px solid var(--red)",
-                borderRadius: "2px",
+                borderRadius: "3px",
                 color: updating ? "var(--text-dim)" : "var(--red)",
                 cursor: updating ? "not-allowed" : "pointer",
               }}
@@ -266,7 +286,7 @@ export default function TicketClient({ id }: { id: string }) {
               style={{
                 background: "var(--green-dim)",
                 border: "1px solid var(--green)",
-                borderRadius: "2px",
+                borderRadius: "3px",
                 color: updating ? "var(--text-dim)" : "var(--green)",
                 cursor: updating ? "not-allowed" : "pointer",
               }}
@@ -282,7 +302,7 @@ export default function TicketClient({ id }: { id: string }) {
               style={{
                 background: "var(--surface-2)",
                 border: "1px solid var(--border)",
-                borderRadius: "2px",
+                borderRadius: "3px",
                 color: "var(--text-dim)",
                 cursor: updating ? "not-allowed" : "pointer",
               }}
@@ -293,163 +313,191 @@ export default function TicketClient({ id }: { id: string }) {
         </div>
       </div>
 
-      {/* Main two-column layout */}
-      <div className="grid grid-cols-1 xl:grid-cols-[1fr_340px] gap-6">
-        {/* LEFT: Chart */}
+      {/* Stats row — Trade Levels | Position Sizing | Conviction */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+        <Section title="Trade Levels">
+          <div className="grid grid-cols-3 gap-2">
+            <PriceStat label="Entry" value={`${sym}${ticket.entry_price.toFixed(2)}`} color="#3b82f6" />
+            <PriceStat label="Stop" value={`${sym}${ticket.stop_loss.toFixed(2)}`} color="var(--red)" />
+            <PriceStat label="Target" value={`${sym}${ticket.target.toFixed(2)}`} color="var(--green)" />
+          </div>
+        </Section>
+
+        <Section title="Position Sizing">
+          <div className="grid grid-cols-2 gap-2">
+            <PriceStat label="Shares" value={String(ticket.position_size)} />
+            <PriceStat label={`Max Risk (${ticket.currency})`} value={`${sym}${ticket.max_risk.toFixed(2)}`} color="var(--accent)" />
+            <PriceStat label="R/R Ratio" value={`${rr}:1`} />
+            <PriceStat label="Portfolio %" value={meta.max_risk_pct ? `${meta.max_risk_pct}%` : "—"} />
+          </div>
+        </Section>
+
+        <Section title="Conviction">
+          <div
+            className="p-4 space-y-3"
+            style={{
+              background: "var(--surface-2)",
+              border: "1px solid var(--border)",
+              borderRadius: "4px",
+            }}
+          >
+            <div className="flex items-center justify-between">
+              <span className="text-sm" style={{ color: "var(--text-muted)" }}>Bullish probability</span>
+              <span className="font-mono font-bold text-2xl" style={{ color: probColor }}>
+                {prob}%
+              </span>
+            </div>
+            <div className="h-2 rounded-full overflow-hidden" style={{ background: "var(--border)" }}>
+              <div
+                className="h-full rounded-full transition-all"
+                style={{ width: `${prob}%`, background: probColor }}
+              />
+            </div>
+            {meta.breadth_zone && (
+              <p className="text-xs" style={{ color: "var(--text-dim)" }}>
+                Breadth: {meta.breadth_zone}{meta.breadth_score ? ` (${meta.breadth_score.toFixed(1)})` : ""}
+              </p>
+            )}
+          </div>
+        </Section>
+      </div>
+
+      {/* Key Triggers + Caveats */}
+      {(ticket.key_triggers?.length > 0 || meta.caveats?.length > 0) && (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+          {ticket.key_triggers?.length > 0 && (
+            <Section title="Key Triggers">
+              <ul className="space-y-2">
+                {ticket.key_triggers.map((t, i) => (
+                  <li
+                    key={i}
+                    className="flex items-start gap-3 p-3"
+                    style={{
+                      background: "var(--surface-2)",
+                      border: "1px solid var(--border)",
+                      borderLeft: "3px solid var(--accent)",
+                      borderRadius: "4px",
+                    }}
+                  >
+                    <span className="font-mono text-base mt-0.5 shrink-0" style={{ color: "var(--accent)" }}>→</span>
+                    <span className="text-sm leading-relaxed" style={{ color: "var(--text)" }}>{t}</span>
+                  </li>
+                ))}
+              </ul>
+            </Section>
+          )}
+
+          {meta.caveats?.length > 0 && (
+            <Section title="Caveats">
+              <ul className="space-y-2">
+                {meta.caveats.map((c: string, i: number) => (
+                  <li
+                    key={i}
+                    className="flex items-start gap-3 p-3"
+                    style={{
+                      background: "var(--red-dim)",
+                      border: "1px solid var(--red)",
+                      borderLeft: "3px solid var(--red)",
+                      borderRadius: "4px",
+                    }}
+                  >
+                    <span className="font-mono text-base mt-0.5 shrink-0" style={{ color: "var(--red)" }}>⚠</span>
+                    <span className="text-sm leading-relaxed" style={{ color: "var(--text-muted)" }}>{c}</span>
+                  </li>
+                ))}
+              </ul>
+            </Section>
+          )}
+        </div>
+      )}
+
+      {/* Full-width chart */}
+      {!fsMode && (
         <div>
           <div className="flex items-center justify-between mb-2">
             <span className="text-xs font-mono uppercase tracking-widest" style={{ color: "var(--text-dim)" }}>
               Price Chart · 1Y Daily
+              {candles.length > 0 && (
+                <span className="ml-3 normal-case">({candles.length} candles)</span>
+              )}
             </span>
-            {candles.length > 0 && (
-              <span className="text-xs font-mono" style={{ color: "var(--text-dim)" }}>
-                {candles.length} candles
-              </span>
-            )}
-          </div>
-          <CandlestickChart
-            candles={candles}
-            executionLevels={executionLevels}
-            height={420}
-            isLoading={chartLoading}
-          />
-          {/* Chart legend */}
-          <div className="flex items-center gap-4 mt-2">
-            {[
-              { color: "#3b82f6", style: "dashed", label: `Entry ${sym}${ticket.entry_price.toFixed(2)}` },
-              { color: "#ef4444", style: "solid", label: `Stop ${sym}${ticket.stop_loss.toFixed(2)}` },
-              { color: "#22c55e", style: "solid", label: `Target ${sym}${ticket.target.toFixed(2)}` },
-            ].map((l) => (
-              <div key={l.label} className="flex items-center gap-1.5">
-                <div
-                  className="w-4 h-0"
-                  style={{
-                    border: `1px ${l.style} ${l.color}`,
-                  }}
-                />
-                <span className="text-xs font-mono" style={{ color: "var(--text-dim)" }}>
-                  {l.label}
-                </span>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {/* RIGHT: Trade details panel */}
-        <div className="space-y-5">
-          {/* Price grid */}
-          <Section title="Trade Levels">
-            <div className="grid grid-cols-3 gap-2">
-              <PriceStat label="Entry" value={`${sym}${ticket.entry_price.toFixed(2)}`} color="#3b82f6" />
-              <PriceStat label="Stop" value={`${sym}${ticket.stop_loss.toFixed(2)}`} color="var(--red)" />
-              <PriceStat label="Target" value={`${sym}${ticket.target.toFixed(2)}`} color="var(--green)" />
-            </div>
-          </Section>
-
-          {/* Position sizing */}
-          <Section title="Position Sizing">
-            <div className="grid grid-cols-2 gap-2">
-              <PriceStat label="Shares" value={String(ticket.position_size)} />
-              <PriceStat
-                label={`Max Risk (${ticket.currency})`}
-                value={`${sym}${ticket.max_risk.toFixed(2)}`}
-                color="var(--accent)"
-              />
-              <PriceStat label="R/R Ratio" value={`${rr}:1`} />
-              <PriceStat
-                label="Portfolio %"
-                value={meta.max_risk_pct ? `${meta.max_risk_pct}%` : "—"}
-              />
-            </div>
-          </Section>
-
-          {/* Bullish probability */}
-          <Section title="Conviction">
-            <div
-              className="p-3 space-y-2"
+            <button
+              onClick={() => setFsMode(true)}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-mono transition-colors"
               style={{
                 background: "var(--surface-2)",
                 border: "1px solid var(--border)",
                 borderRadius: "3px",
+                color: "var(--text-muted)",
+                cursor: "pointer",
               }}
             >
-              <div className="flex items-center justify-between">
-                <span className="text-xs" style={{ color: "var(--text-muted)" }}>
-                  Bullish probability
-                </span>
-                <span
-                  className="font-mono font-bold text-lg"
-                  style={{
-                    color:
-                      prob >= 65
-                        ? "var(--green)"
-                        : prob >= 50
-                          ? "var(--accent)"
-                          : "var(--red)",
-                  }}
-                >
-                  {prob}%
-                </span>
-              </div>
-              <div
-                className="h-1.5 rounded-full overflow-hidden"
-                style={{ background: "var(--border)" }}
-              >
-                <div
-                  className="h-full rounded-full transition-all"
-                  style={{
-                    width: `${prob}%`,
-                    background:
-                      prob >= 65
-                        ? "var(--green)"
-                        : prob >= 50
-                          ? "var(--accent)"
-                          : "var(--red)",
-                  }}
-                />
-              </div>
-              {meta.breadth_zone && (
-                <p className="text-xs" style={{ color: "var(--text-dim)" }}>
-                  Breadth: {meta.breadth_zone}
-                  {meta.breadth_score ? ` (${meta.breadth_score.toFixed(1)})` : ""}
-                </p>
-              )}
-            </div>
-          </Section>
-
-          {/* Key triggers */}
-          {ticket.key_triggers?.length > 0 && (
-            <Section title="Key Triggers">
-              <ul className="space-y-1.5">
-                {ticket.key_triggers.map((t, i) => (
-                  <li key={i} className="flex items-start gap-2 text-xs">
-                    <span className="font-mono mt-0.5" style={{ color: "var(--accent)" }}>
-                      →
-                    </span>
-                    <span style={{ color: "var(--text-muted)" }}>{t}</span>
-                  </li>
-                ))}
-              </ul>
-            </Section>
-          )}
-
-          {/* Caveats */}
-          {meta.caveats?.length > 0 && (
-            <Section title="Caveats">
-              <ul className="space-y-1.5">
-                {meta.caveats.map((c: string, i: number) => (
-                  <li key={i} className="flex items-start gap-2 text-xs">
-                    <span className="font-mono mt-0.5" style={{ color: "var(--red)" }}>
-                      ⚠
-                    </span>
-                    <span style={{ color: "var(--text-muted)" }}>{c}</span>
-                  </li>
-                ))}
-              </ul>
-            </Section>
-          )}
+              <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5">
+                <path d="M1 4V1h3M8 1h3v3M11 8v3H8M4 11H1V8" />
+              </svg>
+              Fullscreen
+            </button>
+          </div>
+          <CandlestickChart
+            candles={candles}
+            executionLevels={executionLevels}
+            height={520}
+            isLoading={chartLoading}
+          />
+          <ChartLegend />
         </div>
-      </div>
+      )}
+
+      {/* Fullscreen chart overlay */}
+      {fsMode && (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 50,
+            background: "var(--bg)",
+            display: "flex",
+            flexDirection: "column",
+            padding: "20px 24px",
+          }}
+        >
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-3">
+              <span className="font-mono font-semibold text-lg" style={{ color: "var(--text)" }}>
+                {ticket.symbol}
+              </span>
+              <span className="text-xs font-mono uppercase tracking-widest" style={{ color: "var(--text-dim)" }}>
+                Price Chart · 1Y Daily
+              </span>
+            </div>
+            <button
+              onClick={() => setFsMode(false)}
+              className="flex items-center gap-2 px-4 py-2 text-xs font-mono transition-colors"
+              style={{
+                background: "var(--surface-2)",
+                border: "1px solid var(--border)",
+                borderRadius: "3px",
+                color: "var(--text-muted)",
+                cursor: "pointer",
+              }}
+            >
+              <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5">
+                <path d="M2 5V2h3M7 2h3v3M10 7v3H7M5 10H2V7" />
+              </svg>
+              Exit Fullscreen · ESC
+            </button>
+          </div>
+          <div style={{ flex: 1, overflow: "hidden" }}>
+            <CandlestickChart
+              candles={candles}
+              executionLevels={executionLevels}
+              height={Math.max(500, screenH - 120)}
+              isLoading={chartLoading}
+            />
+          </div>
+          <ChartLegend />
+        </div>
+      )}
 
       {/* Context sections */}
       {(meta.entry_rationale || meta.trend_context || meta.volume_context || meta.market_breadth_context) && (
@@ -464,20 +512,17 @@ export default function TicketClient({ id }: { id: string }) {
             .map((s) => (
               <div
                 key={s.label}
-                className="p-3 space-y-2"
+                className="p-4 space-y-2"
                 style={{
                   background: "var(--surface)",
                   border: "1px solid var(--border)",
-                  borderRadius: "3px",
+                  borderRadius: "4px",
                 }}
               >
-                <p
-                  className="text-xs font-mono uppercase tracking-widest"
-                  style={{ color: "var(--text-dim)" }}
-                >
+                <p className="text-xs font-mono uppercase tracking-widest" style={{ color: "var(--text-dim)" }}>
                   {s.label}
                 </p>
-                <p className="text-xs leading-relaxed" style={{ color: "var(--text-muted)" }}>
+                <p className="text-sm leading-relaxed" style={{ color: "var(--text-muted)" }}>
                   {s.text}
                 </p>
               </div>
@@ -500,17 +545,11 @@ export default function TicketClient({ id }: { id: string }) {
             className="w-full flex items-center justify-between px-4 py-3 text-left transition-colors hover:bg-zinc-800"
             style={{ cursor: "pointer", background: "none", border: "none" }}
           >
-            <span
-              className="text-xs font-mono uppercase tracking-widest"
-              style={{ color: "var(--text-dim)" }}
-            >
+            <span className="text-xs font-mono uppercase tracking-widest" style={{ color: "var(--text-dim)" }}>
               Pre-Screen Checks (Stage 2 Trend Template)
             </span>
             <div className="flex items-center gap-2">
-              <span
-                className="text-xs font-mono"
-                style={{ color: meta.pre_screen.passed ? "var(--green)" : "var(--red)" }}
-              >
+              <span className="text-xs font-mono" style={{ color: meta.pre_screen.passed ? "var(--green)" : "var(--red)" }}>
                 {meta.pre_screen.passed ? "PASSED" : "FAILED"}
               </span>
               <span style={{ color: "var(--text-dim)" }}>{preScreenOpen ? "▲" : "▼"}</span>
@@ -518,17 +557,11 @@ export default function TicketClient({ id }: { id: string }) {
           </button>
 
           {preScreenOpen && (
-            <div
-              className="px-4 pb-4 pt-2"
-              style={{ borderTop: "1px solid var(--border-subtle)" }}
-            >
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+            <div className="px-4 pb-4 pt-2" style={{ borderTop: "1px solid var(--border-subtle)" }}>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                 {Object.entries(meta.pre_screen.checks ?? {}).map(([key, passed]) => (
-                  <div key={key} className="flex items-center gap-2 text-xs">
-                    <span
-                      className="font-mono w-4 text-center"
-                      style={{ color: passed ? "var(--green)" : "var(--red)" }}
-                    >
+                  <div key={key} className="flex items-center gap-2 text-sm">
+                    <span className="font-mono w-4 text-center" style={{ color: passed ? "var(--green)" : "var(--red)" }}>
                       {passed ? "✓" : "✗"}
                     </span>
                     <span style={{ color: passed ? "var(--text-muted)" : "#fca5a5" }}>
@@ -546,9 +579,7 @@ export default function TicketClient({ id }: { id: string }) {
               {meta.pre_screen.reasons?.length > 0 && (
                 <ul className="mt-2 space-y-1">
                   {meta.pre_screen.reasons.map((r: string, i: number) => (
-                    <li key={i} className="text-xs" style={{ color: "#fca5a5" }}>
-                      {r}
-                    </li>
+                    <li key={i} className="text-sm" style={{ color: "#fca5a5" }}>{r}</li>
                   ))}
                 </ul>
               )}

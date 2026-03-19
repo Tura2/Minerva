@@ -29,6 +29,7 @@ export default function ResearchModal({ symbol, market, onClose }: Props) {
 
   const [portfolioSize, setPortfolioSize] = useState<string>("");
   const [maxRiskPct, setMaxRiskPct] = useState<string>("1.0");
+  const [forceRefresh, setForceRefresh] = useState(false);
   const [loading, setLoading] = useState(false);
   const [preScreenError, setPreScreenError] = useState<PreScreenError | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -57,6 +58,7 @@ export default function ResearchModal({ symbol, market, onClose }: Props) {
         portfolio_size: size,
         max_risk_pct: riskPct,
         force,
+        force_refresh: forceRefresh,
       });
       router.push(`/research/${ticket.id}`);
     } catch (err) {
@@ -256,6 +258,19 @@ export default function ResearchModal({ symbol, market, onClose }: Props) {
                   Range: 0.1% – 10%
                 </p>
               </div>
+
+              {/* Force refresh checkbox */}
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={forceRefresh}
+                  onChange={(e) => setForceRefresh(e.target.checked)}
+                  style={{ accentColor: "var(--accent)", width: 14, height: 14 }}
+                />
+                <span className="text-xs" style={{ color: "var(--text-dim)" }}>
+                  Force refresh (bypass 24h dedup cache)
+                </span>
+              </label>
             </>
           )}
 

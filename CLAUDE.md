@@ -430,12 +430,24 @@ Frontend market data endpoint (`/market/history`) normalizes OHLC:
 - Prefer deterministic validation early and LLM calls late in the pipeline
 
 ### Codebase State (updated 2026-03-19)
+
+- **Phase 6 complete:** persistence & data integrity — output validation (14 tests), 24h dedup, scan history panel, stale data warnings, updated_at trigger
+- **Phase 5 complete:** full frontend UI — watchlist, candidates, research execute flow, ticket detail, dashboard
 - **Phase 3 complete:** workflow engine lives in `backend/app/services/workflows/swing_trade.py`
-- **DB migrations applied:** 001 (initial schema) + 002 (adds `metadata JSONB`, `key_triggers TEXT[]` to `research_tickets`)
-- **research_tickets** now has `metadata`, `key_triggers` columns — always include these in inserts
+- **DB migrations applied:** 001 (initial schema) + 002 (`metadata JSONB`, `key_triggers TEXT[]`) + 003 (`total_in_watchlist` on scan_history, updated_at trigger)
+- **research_tickets** has `metadata`, `key_triggers`, `updated_at` columns — always include in inserts
 - **Workflow nodes** (in order): fetch_data → pre_screen → fetch_breadth → llm_research → compute_sizing → persist_ticket
-- **Pre-screen gate** returns 422 with structured JSON on failure; `force=true` param bypasses it
-- **Market breadth** (Monty's CSV) is US-only; TASE always returns a neutral stub — this is expected
+- **Pre-screen gate** returns 422 with structured JSON on failure; `force=true` param bypasses it; `force_refresh=true` bypasses 24h dedup
+- **Market breadth** (Monty's CSV) is US-only; TASE always returns a neutral stub — expected
+- **Theme system:** `ThemeProvider` context + CSS variables, dark default + `.light` class override; "Assistant" + "JetBrains Mono" Google Fonts; base font 16px
+- **Color palette:** accent is teal `#57c1d5` (dark) / `#1a8fa6` (light) — NOT amber; no hardcoded `#f59e0b` anywhere
+- **Quote endpoint:** `POST /market/quotes` (batch, async parallel via `asyncio.gather`) returns price + change_pct
+- **Single-symbol scan:** `POST /scanner/scan` accepts optional `symbols: string[]` to bypass watchlist; `.TA` suffix stripped + market auto-inferred
+- **Candidates aggregation:** `GET /scanner/candidates` deduplicates in Python across ALL scan runs — single-symbol scans don't wipe watchlist candidates
+- **Research model:** `deepseek/deepseek-chat` — non-reasoning, supports `response_format: json_object`; stepfun free model was dropped (reasoning burns all tokens, returns null content)
+- **apiClient interceptor:** wraps network failures with `ApiError(0, "Backend not reachable...")`
+- **Ticket layout:** stats row (Trade Levels | Position Sizing | Conviction) at top; key triggers/caveats below as cards; full-width chart with fullscreen toggle at bottom
+- **Port gotcha:** Windows Hyper-V reserves port 8000 range. Run backend on `--port 8001`; set `NEXT_PUBLIC_API_URL=http://localhost:8001` in `frontend/.env.local`
 
 ### Known Gotchas
 - **TASE yfinance symbols:** Always append `.TA` suffix (e.g., `OPCE` → `OPCE.TA`). Handled in scanner and workflow automatically.
@@ -443,3 +455,6 @@ Frontend market data endpoint (`/market/history`) normalizes OHLC:
 - **Windows Unicode in scripts:** Add `sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')` when printing non-ASCII (e.g., ₪, ✓).
 - **Supabase MCP:** Approved via `enabledMcpjsonServers: ["supabase"]` in `.claude/settings.json`. Use `mcp__supabase__apply_migration` for DDL, `mcp__supabase__execute_sql` for queries.
 - **Dev Python env:** Python 3.11 global install (no activated venv in dev shell). `pip install` targets the global interpreter.
+- **lightweight-charts SSR:** Always use `dynamic(() => import(...), { ssr: false })` for `CandlestickChart` — it uses browser DOM APIs.
+- **OpenRouter free models (stepfun etc.):** Reasoning models burn all tokens on internal thinking → `content=null`. Use non-reasoning models like `deepseek/deepseek-chat` that support `json_object` mode.
+- **Symbol normalization:** `.TA` suffix stripped in `POST /scanner/scan` before storage. Market auto-inferred as TASE when suffix present. Symbols stored without suffix.
