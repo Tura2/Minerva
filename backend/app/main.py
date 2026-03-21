@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from app.routers import scanner, research, market, watchlist
+from app.routers import scanner, research, market, watchlist, watchlists
 from app.config import settings
 
 app = FastAPI(
@@ -23,6 +23,7 @@ app.include_router(scanner.router, prefix="/scanner", tags=["scanner"])
 app.include_router(research.router, prefix="/research", tags=["research"])
 app.include_router(market.router, prefix="/market", tags=["market"])
 app.include_router(watchlist.router, prefix="/watchlist", tags=["watchlist"])
+app.include_router(watchlists.router, prefix="/watchlists", tags=["watchlists"])
 
 
 @app.get("/health")

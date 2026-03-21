@@ -3,10 +3,21 @@ export type TicketStatus = "pending" | "approved" | "rejected";
 export type SetupQuality = "A" | "B" | "C";
 export type Currency = "USD" | "ILS";
 
+export interface Watchlist {
+  id: string;
+  name: string;
+  description: string | null;
+  created_at: string;
+  item_count: number;
+  us_count: number;
+  tase_count: number;
+}
+
 export interface WatchlistItem {
   id: string;
   symbol: string;
   market: Market;
+  watchlist_id: string;
   added_at: string;
   notes: string | null;
 }
@@ -89,12 +100,92 @@ export interface PreScreenResult {
   summary: string;
 }
 
+export interface DebugLogEntry {
+  node: string;
+  ts: string;
+  [key: string]: unknown;
+}
+
+// ── Rich ticket schema (Phase 7) ───────────────────────────────────────────
+
+export interface TechnicalAnalysis {
+  entry_price: number;
+  entry_type: "current" | "breakout";
+  stop_loss: number;
+  atr_stop_check: "valid" | "violated";
+  pivot_level: number | null;
+  key_support: number[];
+  key_resistance: number[];
+  pattern_stage: "pre-vcp" | "developing" | "entry-ready" | "extended";
+}
+
+export interface ScaleOutTarget {
+  label: string;
+  price: number;
+  share_pct: number;
+}
+
+export interface ScaleOutPlanEntry extends ScaleOutTarget {
+  shares: number;
+  r_multiple: number | null;
+  partial_value: number | null;
+}
+
+export interface Scenario {
+  name: string;
+  probability: number;
+  description: string;
+  target: number;
+  invalidation: string;
+}
+
+export interface SynthesizedScoreDimension {
+  score: number;
+  note: string;
+}
+
+export interface SynthesizedScore {
+  trend_template: SynthesizedScoreDimension;
+  vcp_pattern: SynthesizedScoreDimension;
+  volume_profile: SynthesizedScoreDimension;
+  rs_strength: SynthesizedScoreDimension;
+  breadth_context: SynthesizedScoreDimension;
+  weekly_alignment: SynthesizedScoreDimension;
+  total: number;
+}
+
+export interface ExecutionChecklist {
+  prerequisites: string[];
+  entry_triggers: string[];
+  invalidation_conditions: string[];
+}
+
+export interface FinalRecommendation {
+  verdict: "Strong Buy" | "Buy" | "Watch" | "Avoid";
+  action: string;
+  conviction: "high" | "medium" | "low";
+  narrative: string;
+}
+
+export interface RsIndicators {
+  rs_63?: number | null;
+  rs_126?: number | null;
+  rs_189?: number | null;
+  rs_composite?: number | null;
+  rs_rank_pct?: number | null;
+  benchmark_used?: string;
+}
+
+// ── ──────────────────────────────────────────────────────────────────────────
+
 export interface ResearchTicketMetadata {
+  // Legacy fields
   entry_rationale: string;
   stop_rationale: string;
   target_rationale: string;
   risk_reward_ratio: number;
   setup_quality: SetupQuality;
+  chain_of_thought?: string;
   trend_context: string;
   volume_context: string;
   market_breadth_context: string;
@@ -102,9 +193,20 @@ export interface ResearchTicketMetadata {
   pre_screen: PreScreenResult | null;
   breadth_zone: string;
   breadth_score: number;
+  weekly_trend?: string;
   research_model: string;
   portfolio_size: number;
   max_risk_pct: number;
+  debug_logs?: DebugLogEntry[];
+  // Rich fields (Phase 7)
+  technical_analysis?: TechnicalAnalysis;
+  scale_out_targets?: ScaleOutTarget[];
+  scale_out_plan?: ScaleOutPlanEntry[];
+  scenarios?: Scenario[];
+  synthesized_score?: SynthesizedScore;
+  execution_checklist?: ExecutionChecklist;
+  final_recommendation?: FinalRecommendation;
+  rs_indicators?: RsIndicators;
 }
 
 export interface ResearchTicket {
@@ -122,6 +224,11 @@ export interface ResearchTicket {
   key_triggers: string[];
   status: TicketStatus;
   created_at: string;
+  // Phase 7 flat columns
+  rs_rank_pct?: number | null;
+  setup_score?: number | null;
+  verdict?: "Strong Buy" | "Buy" | "Watch" | "Avoid" | null;
+  entry_type?: "current" | "breakout" | null;
   metadata: ResearchTicketMetadata;
 }
 

@@ -68,6 +68,27 @@ def compute_indicators(df: pd.DataFrame) -> Dict[str, Any]:
         else None
     )
 
+    # ── Volume profile: accumulation vs distribution (last 20 sessions) ────────
+    accum_days: Optional[int] = None
+    distrib_days: Optional[int] = None
+    vol_dry_up: Optional[bool] = None
+
+    vol_dry_up_ratio: Optional[float] = None  # 10d avg vol / 50d avg vol
+
+    if len(df) >= 20 and avg_vol_50_val:
+        seg = df.tail(20).copy()
+        seg_prev_close = seg["close"].shift(1)
+        seg_up = seg["close"] > seg_prev_close
+        seg_above_avg = seg["volume"] > avg_vol_50_val
+        accum_days = int((seg_up & seg_above_avg).sum())
+        distrib_days = int((~seg_up & seg_above_avg).sum())
+        last3_vol = float(volume.tail(3).mean())
+        vol_dry_up = last3_vol < avg_vol_50_val * 0.60
+
+    if len(df) >= 10 and avg_vol_50_val and avg_vol_50_val > 0:
+        avg_vol_10 = float(volume.tail(10).mean())
+        vol_dry_up_ratio = round(avg_vol_10 / avg_vol_50_val, 4)
+
     return {
         "price": current_price,
         "ma20": _last_valid(ma20),
@@ -83,11 +104,73 @@ def compute_indicators(df: pd.DataFrame) -> Dict[str, Any]:
         "rvol": rvol,
         "volume": current_vol,
         "ma200_trending_up": ma200_trending_up,
+        # Volume profile
+        "accum_days_20": accum_days,
+        "distrib_days_20": distrib_days,
+        "vol_dry_up": vol_dry_up,
+        "vol_dry_up_ratio": vol_dry_up_ratio,  # 10d/50d avg vol ratio (< 0.6 = compression)
         # Series kept for VCP detection (prefixed with _ to signal internal use)
         "_close": close,
         "_high": high,
         "_low": low,
         "_atr14": atr14,
+    }
+
+
+def compute_weekly_indicators(df: pd.DataFrame) -> Dict[str, Any]:
+    """
+    Derive weekly-timeframe indicators from a daily OHLC DataFrame.
+
+    Resamples to weekly (Friday close), then computes:
+      - WMA10 (10-week ≈ 50-day proxy)
+      - WMA20 (20-week ≈ 100-day proxy)
+      - Weekly RSI-14
+      - Weekly ATR-14
+      - Weekly trend classification: uptrend / downtrend / sideways
+
+    Requires at least 20 weeks of data in the daily frame (~100 days).
+    """
+    if df.empty or len(df) < 100:
+        return {}
+
+    weekly = (
+        df.resample("W")
+        .agg({"open": "first", "high": "max", "low": "min", "close": "last", "volume": "sum"})
+        .dropna()
+    )
+
+    if len(weekly) < 20:
+        return {}
+
+    close = weekly["close"]
+    wma10 = close.rolling(10).mean()
+    wma20 = close.rolling(20).mean()
+    wrsi = _compute_rsi(close, 14)
+    watr = _compute_atr(weekly, 14)
+
+    latest_close = float(close.iloc[-1])
+    wma10_val = _last_valid(wma10)
+    wma20_val = _last_valid(wma20)
+    wrsi_val = _last_valid(wrsi)
+    watr_val = _last_valid(watr)
+
+    if wma10_val and wma20_val:
+        if latest_close > wma10_val and wma10_val > wma20_val:
+            weekly_trend = "uptrend"
+        elif latest_close < wma10_val and wma10_val < wma20_val:
+            weekly_trend = "downtrend"
+        else:
+            weekly_trend = "sideways"
+    else:
+        weekly_trend = "unknown"
+
+    return {
+        "weekly_close": round(latest_close, 4),
+        "weekly_ma10": wma10_val,
+        "weekly_ma20": wma20_val,
+        "weekly_rsi14": wrsi_val,
+        "weekly_atr14": watr_val,
+        "weekly_trend": weekly_trend,
     }
 
 

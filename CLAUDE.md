@@ -429,14 +429,15 @@ Frontend market data endpoint (`/market/history`) normalizes OHLC:
 - Keep market-aware defaults (USD/ILS, trading hours) consistent across all workflow nodes
 - Prefer deterministic validation early and LLM calls late in the pipeline
 
-### Codebase State (updated 2026-03-19)
+### Codebase State (updated 2026-03-21)
 
+- **Phase 7 complete:** rich analytical depth — RS scoring, multi-target scale-out, 4-scenario planning, Synthesized Setup Score, Final Recommendation, execution checklist
 - **Phase 6 complete:** persistence & data integrity — output validation (14 tests), 24h dedup, scan history panel, stale data warnings, updated_at trigger
 - **Phase 5 complete:** full frontend UI — watchlist, candidates, research execute flow, ticket detail, dashboard
 - **Phase 3 complete:** workflow engine lives in `backend/app/services/workflows/swing_trade.py`
-- **DB migrations applied:** 001 (initial schema) + 002 (`metadata JSONB`, `key_triggers TEXT[]`) + 003 (`total_in_watchlist` on scan_history, updated_at trigger)
-- **research_tickets** has `metadata`, `key_triggers`, `updated_at` columns — always include in inserts
-- **Workflow nodes** (in order): fetch_data → pre_screen → fetch_breadth → llm_research → compute_sizing → persist_ticket
+- **DB migrations applied:** 001–005; 005 adds `rs_rank_pct FLOAT`, `setup_score SMALLINT`, `verdict TEXT`, `entry_type TEXT` flat columns to `research_tickets`
+- **research_tickets** has `metadata`, `key_triggers`, `updated_at`, `rs_rank_pct`, `setup_score`, `verdict`, `entry_type` — always include all in inserts
+- **Workflow nodes** (in order): fetch_data → **fetch_rs** → pre_screen → fetch_breadth → llm_research → compute_sizing → persist_ticket
 - **Agorot fix (2026-03-19):** TASE prices from yfinance are in agorot (1/100 ILS). Fixed in `_node_fetch_data()` (divides df OHLC ÷ 100) and `market.py` (_normalize_candles + _fetch_quote_sync). All TASE price display and research is now in correct ILS units.
 - **Relative screening refactor (2026-03-19):** Scanner now uses RVOL (relative volume = today / 20d avg) and ATR% (ATR-14 / price × 100) instead of absolute volume/volatility. Pre-screen liquidity gate uses RVOL from indicators (fallback: absolute avg_vol floor). `indicators.py` now emits `rvol` and `atr_pct`. Score is market-agnostic: `min(rvol, 3) × 10 + atr_pct × 10`. Also fixed a score bug where `df["Close"]` was used instead of `df["Volume"]` in the old score fn.
 - **Workflow docs:** See `docs/WORKFLOWS.md` — full node reference, known issues, improvement roadmap, prompt engineering notes
@@ -449,7 +450,11 @@ Frontend market data endpoint (`/market/history`) normalizes OHLC:
 - **Candidates aggregation:** `GET /scanner/candidates` deduplicates in Python across ALL scan runs — single-symbol scans don't wipe watchlist candidates
 - **Research model:** `deepseek/deepseek-chat` — non-reasoning, supports `response_format: json_object`; stepfun free model was dropped (reasoning burns all tokens, returns null content)
 - **apiClient interceptor:** wraps network failures with `ApiError(0, "Backend not reachable...")`
-- **Ticket layout:** stats row (Trade Levels | Position Sizing | Conviction) at top; key triggers/caveats below as cards; full-width chart with fullscreen toggle at bottom
+- **Ticket layout (Phase 7):** header (symbol + VerdictBadge + SetupScoreBadge + RS rank) → chart → stats row → Synthesized Score table → Scale-out Plan → Scenarios → Final Recommendation + checklist → Key Triggers/Caveats → context sections → Pre-screen accordion
+- **RS calculator:** `backend/app/services/rs_calculator.py` — computes excess return vs SPY (US) or ^TA125.TA (TASE) for 63/126/189d periods; RS composite = 0.40×63d + 0.35×126d + 0.25×189d; percentile rank within watchlist universe (capped 30 symbols, 10s timeout)
+- **New LLM JSON fields:** `technical_analysis`, `scale_out_targets` (T1/T2/T3), `scenarios` (4 items summing to 1.0), `synthesized_score` (6 dimensions × 0-10, total/60), `execution_checklist`, `final_recommendation` (verdict/action/conviction/narrative)
+- **max_tokens bumped 2500→3500** for LLM research call (richer schema needs more output budget)
+- **vol_dry_up_ratio:** `indicators.py` now emits `vol_dry_up_ratio` (10d avg / 50d avg) as quantitative compression metric alongside bool `vol_dry_up`
 - **Port gotcha:** Windows Hyper-V reserves port 8000 range. Run backend on `--port 8001`; set `NEXT_PUBLIC_API_URL=http://localhost:8001` in `frontend/.env.local`
 
 ### Known Gotchas

@@ -5,7 +5,15 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { getTicket, updateTicketStatus } from "@/lib/api/research";
 import { getHistory } from "@/lib/api/market";
-import type { Candle, ExecutionLevels, ResearchTicket, TicketStatus } from "@/lib/types";
+import type {
+  Candle,
+  ExecutionLevels,
+  ResearchTicket,
+  Scenario,
+  ScaleOutPlanEntry,
+  SynthesizedScore,
+  TicketStatus,
+} from "@/lib/types";
 
 // Dynamically import CandlestickChart to avoid SSR issues with DOM APIs
 const CandlestickChart = dynamic(() => import("@/components/CandlestickChart"), {
@@ -24,6 +32,8 @@ const CHECK_LABELS: Record<string, string> = {
   min_volume: "Minimum volume threshold",
 };
 
+// ── Shared primitive components ──────────────────────────────────────────────
+
 function StatusBadge({ status }: { status: TicketStatus }) {
   const styles: Record<TicketStatus, { bg: string; color: string }> = {
     pending: { bg: "var(--accent-dim)", color: "var(--accent)" },
@@ -37,6 +47,38 @@ function StatusBadge({ status }: { status: TicketStatus }) {
       style={{ background: s.bg, color: s.color }}
     >
       {status}
+    </span>
+  );
+}
+
+function VerdictBadge({ verdict }: { verdict?: string | null }) {
+  if (!verdict) return null;
+  const map: Record<string, { bg: string; color: string }> = {
+    "Strong Buy": { bg: "#14532d", color: "#4ade80" },
+    "Buy":        { bg: "var(--green-dim)", color: "var(--green)" },
+    "Watch":      { bg: "var(--accent-dim)", color: "var(--accent)" },
+    "Avoid":      { bg: "var(--red-dim)", color: "var(--red)" },
+  };
+  const s = map[verdict] ?? { bg: "var(--surface-2)", color: "var(--text-dim)" };
+  return (
+    <span
+      className="px-3 py-1 text-sm font-mono font-semibold rounded uppercase tracking-wide"
+      style={{ background: s.bg, color: s.color }}
+    >
+      {verdict}
+    </span>
+  );
+}
+
+function SetupScoreBadge({ score }: { score?: number | null }) {
+  if (score == null) return null;
+  const color = score >= 42 ? "var(--green)" : score >= 34 ? "var(--accent)" : score >= 25 ? "#f97316" : "var(--red)";
+  return (
+    <span
+      className="px-3 py-1 font-mono text-sm font-bold rounded"
+      style={{ background: "var(--surface-2)", border: `1px solid ${color}`, color }}
+    >
+      {score}/60
     </span>
   );
 }
@@ -60,15 +102,7 @@ function QualityBadge({ q }: { q?: string }) {
   );
 }
 
-function PriceStat({
-  label,
-  value,
-  color,
-}: {
-  label: string;
-  value: string;
-  color?: string;
-}) {
+function PriceStat({ label, value, color }: { label: string; value: string; color?: string }) {
   return (
     <div
       className="p-3"
@@ -81,10 +115,7 @@ function PriceStat({
       <p className="text-xs uppercase tracking-widest mb-1.5" style={{ color: "var(--text-dim)" }}>
         {label}
       </p>
-      <p
-        className="font-mono text-xl font-semibold"
-        style={{ color: color ?? "var(--text)" }}
-      >
+      <p className="font-mono text-xl font-semibold" style={{ color: color ?? "var(--text)" }}>
         {value}
       </p>
     </div>
@@ -105,6 +136,246 @@ function Section({ title, children }: { title: string; children: React.ReactNode
   );
 }
 
+// ── Rich analytical sections ─────────────────────────────────────────────────
+
+const SCORE_DIMENSIONS = [
+  { key: "trend_template",   label: "Trend Template" },
+  { key: "vcp_pattern",      label: "VCP Pattern" },
+  { key: "volume_profile",   label: "Volume Profile" },
+  { key: "rs_strength",      label: "RS Strength" },
+  { key: "breadth_context",  label: "Market Breadth" },
+  { key: "weekly_alignment", label: "Weekly Align" },
+] as const;
+
+function SynthesizedScoreTable({ score }: { score: SynthesizedScore }) {
+  const total = score.total ?? 0;
+  const verdictColor = total >= 42 ? "#4ade80" : total >= 34 ? "var(--accent)" : total >= 25 ? "#f97316" : "var(--red)";
+  const verdictLabel = total >= 42 ? "Strong Buy" : total >= 34 ? "Buy" : total >= 25 ? "Watch" : "Avoid";
+
+  return (
+    <Section title="Synthesized Setup Score">
+      <div
+        style={{
+          background: "var(--surface-2)",
+          border: "1px solid var(--border)",
+          borderRadius: "4px",
+          overflow: "hidden",
+        }}
+      >
+        <div className="overflow-x-auto">
+          <table style={{ width: "100%", borderCollapse: "collapse" }}>
+            <thead>
+              <tr style={{ borderBottom: "1px solid var(--border)" }}>
+                <th className="text-left text-xs font-mono uppercase tracking-widest px-3 py-2" style={{ color: "var(--text-dim)", width: "16%" }}>Dimension</th>
+                <th className="text-center text-xs font-mono uppercase tracking-widest px-3 py-2" style={{ color: "var(--text-dim)", width: "9%" }}>Score</th>
+                <th className="text-left px-3 py-2" style={{ width: "15%" }}>
+                  <span className="text-xs font-mono uppercase tracking-widest" style={{ color: "var(--text-dim)" }}>Bar</span>
+                </th>
+                <th className="text-left text-xs font-mono uppercase tracking-widest px-3 py-2" style={{ color: "var(--text-dim)" }}>Note</th>
+              </tr>
+            </thead>
+            <tbody>
+              {SCORE_DIMENSIONS.map(({ key, label }) => {
+                const dim = score[key];
+                if (!dim) return null;
+                const pct = Math.min(100, (dim.score / 10) * 100);
+                const barColor = dim.score >= 8 ? "var(--green)" : dim.score >= 5 ? "var(--accent)" : "var(--red)";
+                return (
+                  <tr key={key} style={{ borderBottom: "1px solid var(--border-subtle)" }}>
+                    <td className="px-3 py-2 text-sm font-mono" style={{ color: "var(--text-muted)" }}>{label}</td>
+                    <td className="px-3 py-2 text-center font-mono font-bold text-sm" style={{ color: barColor }}>{dim.score}/10</td>
+                    <td className="px-3 py-2">
+                      <div className="h-1.5 rounded-full" style={{ background: "var(--border)", width: "100px" }}>
+                        <div className="h-full rounded-full" style={{ width: `${pct}%`, background: barColor }} />
+                      </div>
+                    </td>
+                    <td className="px-3 py-2 text-xs" style={{ color: "var(--text-dim)" }}>{dim.note}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+            <tfoot>
+              <tr style={{ borderTop: "1px solid var(--border)" }}>
+                <td className="px-3 py-2 font-mono text-sm font-bold" style={{ color: "var(--text)" }}>Total</td>
+                <td className="px-3 py-2 text-center font-mono font-bold" style={{ color: verdictColor }}>{total}/60</td>
+                <td />
+                <td className="px-3 py-2 text-xs font-mono font-semibold" style={{ color: verdictColor }}>→ {verdictLabel}</td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      </div>
+    </Section>
+  );
+}
+
+function ScaleOutPlanSection({ plan, sym }: { plan: ScaleOutPlanEntry[]; sym: string }) {
+  if (!plan.length) return null;
+  return (
+    <Section title="Scale-Out Plan">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        {plan.map((t) => {
+          const rColor = t.r_multiple != null && t.r_multiple >= 2 ? "var(--green)" : t.r_multiple != null && t.r_multiple >= 1 ? "var(--accent)" : "var(--text-dim)";
+          return (
+            <div
+              key={t.label}
+              className="p-3 space-y-2"
+              style={{
+                background: "var(--surface-2)",
+                border: "1px solid var(--border)",
+                borderRadius: "4px",
+              }}
+            >
+              <p className="text-xs font-mono uppercase tracking-widest" style={{ color: "var(--text-dim)" }}>{t.label}</p>
+              <p className="font-mono text-xl font-bold" style={{ color: "var(--green)" }}>
+                {t.price > 0 ? `${sym}${t.price.toFixed(2)}` : "—"}
+              </p>
+              <div className="flex items-center justify-between text-xs font-mono" style={{ color: "var(--text-dim)" }}>
+                <span>{t.share_pct}% of shares</span>
+                {t.r_multiple != null && (
+                  <span style={{ color: rColor }}>{t.r_multiple.toFixed(1)}R</span>
+                )}
+              </div>
+              {t.shares > 0 && (
+                <p className="text-xs font-mono" style={{ color: "var(--text-muted)" }}>
+                  {t.shares} shares
+                  {t.partial_value ? ` · ${sym}${t.partial_value.toLocaleString()}` : ""}
+                </p>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </Section>
+  );
+}
+
+function ScenariosSection({ scenarios }: { scenarios: Scenario[] }) {
+  const COLORS: Record<string, { bg: string; border: string; color: string }> = {
+    "Bull Case":  { bg: "#14532d20", border: "#4ade80", color: "#4ade80" },
+    "Base Case":  { bg: "var(--accent-dim)", border: "var(--accent)", color: "var(--accent)" },
+    "Bear Case":  { bg: "#7c341120", border: "#f97316", color: "#f97316" },
+    "Breakdown":  { bg: "var(--red-dim)", border: "var(--red)", color: "var(--red)" },
+  };
+
+  return (
+    <Section title="Scenario Planning">
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
+        {scenarios.map((s) => {
+          const c = COLORS[s.name] ?? { bg: "var(--surface-2)", border: "var(--border)", color: "var(--text-dim)" };
+          const probPct = Math.round(s.probability * 100);
+          return (
+            <div
+              key={s.name}
+              className="p-4 space-y-3"
+              style={{
+                background: c.bg,
+                border: `1px solid ${c.border}`,
+                borderRadius: "4px",
+              }}
+            >
+              <div className="flex items-center justify-between">
+                <p className="text-xs font-mono font-semibold uppercase tracking-wide" style={{ color: c.color }}>
+                  {s.name}
+                </p>
+                <span className="font-mono font-bold text-lg" style={{ color: c.color }}>{probPct}%</span>
+              </div>
+              <div className="h-1 rounded-full" style={{ background: "var(--border)" }}>
+                <div className="h-full rounded-full" style={{ width: `${probPct}%`, background: c.color }} />
+              </div>
+              <p className="text-xs leading-relaxed" style={{ color: "var(--text-muted)" }}>{s.description}</p>
+              {s.target > 0 && (
+                <p className="text-xs font-mono" style={{ color: c.color }}>
+                  Target: {s.target.toFixed(2)}
+                </p>
+              )}
+              {s.invalidation && (
+                <p className="text-xs" style={{ color: "var(--text-dim)" }}>
+                  ⊗ {s.invalidation}
+                </p>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </Section>
+  );
+}
+
+function FinalRecommendationSection({
+  recommendation,
+  checklist,
+}: {
+  recommendation: NonNullable<ResearchTicket["metadata"]["final_recommendation"]>;
+  checklist?: ResearchTicket["metadata"]["execution_checklist"];
+}) {
+  const convictionColor =
+    recommendation.conviction === "high"   ? "var(--green)"  :
+    recommendation.conviction === "medium" ? "var(--accent)" : "var(--text-dim)";
+
+  return (
+    <div
+      className="p-5 space-y-4"
+      style={{
+        background: "var(--surface)",
+        border: "1px solid var(--border)",
+        borderLeft: "4px solid var(--accent)",
+        borderRadius: "4px",
+      }}
+    >
+      <div className="flex items-start gap-4 flex-wrap">
+        <div className="flex-1 space-y-2">
+          <div className="flex items-center gap-3 flex-wrap">
+            <p className="text-xs font-mono uppercase tracking-widest" style={{ color: "var(--text-dim)" }}>
+              Final Recommendation
+            </p>
+            <VerdictBadge verdict={recommendation.verdict} />
+            <span className="text-xs font-mono capitalize" style={{ color: convictionColor }}>
+              {recommendation.conviction} conviction
+            </span>
+          </div>
+          {recommendation.action && (
+            <p className="text-sm font-semibold" style={{ color: "var(--text)" }}>
+              {recommendation.action}
+            </p>
+          )}
+          {recommendation.narrative && (
+            <p className="text-sm leading-relaxed" style={{ color: "var(--text-muted)" }}>
+              {recommendation.narrative}
+            </p>
+          )}
+        </div>
+      </div>
+
+      {checklist && (
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-3" style={{ borderTop: "1px solid var(--border-subtle)" }}>
+          {[
+            { label: "Prerequisites", items: checklist.prerequisites ?? [], color: "var(--accent)" },
+            { label: "Entry Triggers", items: checklist.entry_triggers ?? [], color: "var(--green)" },
+            { label: "Invalidation", items: checklist.invalidation_conditions ?? [], color: "var(--red)" },
+          ].map(({ label, items, color }) =>
+            items.length > 0 ? (
+              <div key={label} className="space-y-2">
+                <p className="text-xs font-mono uppercase tracking-widest" style={{ color: "var(--text-dim)" }}>{label}</p>
+                <ul className="space-y-1">
+                  {items.map((item, i) => (
+                    <li key={i} className="flex items-start gap-2 text-xs" style={{ color: "var(--text-muted)" }}>
+                      <span className="mt-0.5 shrink-0 font-mono" style={{ color }}>▸</span>
+                      {item}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : null
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Main page component ───────────────────────────────────────────────────────
+
 export default function TicketClient({ id }: { id: string }) {
   const [ticket, setTicket] = useState<ResearchTicket | null>(null);
   const [candles, setCandles] = useState<Candle[]>([]);
@@ -113,6 +384,7 @@ export default function TicketClient({ id }: { id: string }) {
   const [chartLoading, setChartLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [updating, setUpdating] = useState(false);
+  const [chartError, setChartError] = useState<string | null>(null);
   const [preScreenOpen, setPreScreenOpen] = useState(false);
   const [fsMode, setFsMode] = useState(false);
   const [screenH, setScreenH] = useState(800);
@@ -135,7 +407,7 @@ export default function TicketClient({ id }: { id: string }) {
         const t = await getTicket(id);
         setTicket(t);
 
-        // Load chart data with execution levels
+        // Load chart data — failures here are non-fatal; ticket still renders
         try {
           const hist = await getHistory({
             symbol: t.symbol,
@@ -148,12 +420,11 @@ export default function TicketClient({ id }: { id: string }) {
           if (hist.execution_levels) {
             setExecutionLevels(hist.execution_levels);
           } else {
-            setExecutionLevels({
-              entry: t.entry_price,
-              stop: t.stop_loss,
-              target: t.target,
-            });
+            setExecutionLevels({ entry: t.entry_price, stop: t.stop_loss, target: t.target });
           }
+        } catch {
+          setExecutionLevels({ entry: t.entry_price, stop: t.stop_loss, target: t.target });
+          setChartError("Chart data unavailable — backend returned an error.");
         } finally {
           setChartLoading(false);
         }
@@ -175,6 +446,25 @@ export default function TicketClient({ id }: { id: string }) {
     } finally {
       setUpdating(false);
     }
+  }
+
+  function handleDownloadDebugLogs() {
+    if (!ticket) return;
+    const payload = {
+      ticket_id: ticket.id,
+      symbol: ticket.symbol,
+      market: ticket.market,
+      created_at: ticket.created_at,
+      workflow_type: ticket.workflow_type,
+      debug_logs: ticket.metadata?.debug_logs ?? [],
+    };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `debug_${ticket.symbol}_${ticket.id.slice(0, 8)}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
   }
 
   if (loading) {
@@ -212,12 +502,21 @@ export default function TicketClient({ id }: { id: string }) {
   const rr = meta.risk_reward_ratio ? meta.risk_reward_ratio.toFixed(1) : "—";
   const probColor = prob >= 65 ? "var(--green)" : prob >= 50 ? "var(--accent)" : "var(--red)";
 
+  // Rich fields
+  const synthesizedScore = meta.synthesized_score;
+  const scaleOutPlan = meta.scale_out_plan ?? [];
+  const scenarios = meta.scenarios ?? [];
+  const finalRec = meta.final_recommendation;
+  const checklist = meta.execution_checklist;
+  const techAnalysis = meta.technical_analysis;
+  const rsIndicators = meta.rs_indicators;
+
   const ChartLegend = () => (
     <div className="flex items-center gap-5 mt-2 px-1">
       {[
         { color: "#3b82f6", style: "dashed", label: `Entry ${sym}${ticket.entry_price.toFixed(2)}` },
-        { color: "#ef4444", style: "solid", label: `Stop ${sym}${ticket.stop_loss.toFixed(2)}` },
-        { color: "#22c55e", style: "solid", label: `Target ${sym}${ticket.target.toFixed(2)}` },
+        { color: "#ef4444", style: "solid",  label: `Stop ${sym}${ticket.stop_loss.toFixed(2)}` },
+        { color: "#22c55e", style: "solid",  label: `Target ${sym}${ticket.target.toFixed(2)}` },
       ].map((l) => (
         <div key={l.label} className="flex items-center gap-2">
           <div className="w-5 h-0" style={{ border: `1.5px ${l.style} ${l.color}` }} />
@@ -253,15 +552,54 @@ export default function TicketClient({ id }: { id: string }) {
               {ticket.market}
             </span>
             <StatusBadge status={ticket.status} />
-            {meta.setup_quality && <QualityBadge q={meta.setup_quality} />}
+            {/* Verdict takes precedence over quality badge when available */}
+            {ticket.verdict || finalRec?.verdict
+              ? <VerdictBadge verdict={ticket.verdict ?? finalRec?.verdict} />
+              : <QualityBadge q={meta.setup_quality} />
+            }
+            {(ticket.setup_score != null || synthesizedScore?.total != null) && (
+              <SetupScoreBadge score={ticket.setup_score ?? synthesizedScore?.total} />
+            )}
+            {rsIndicators?.rs_rank_pct != null && (
+              <span
+                className="px-2 py-1 text-xs font-mono rounded"
+                style={{ background: "var(--surface-2)", border: "1px solid var(--border)", color: "var(--text-dim)" }}
+              >
+                RS {rsIndicators.rs_rank_pct.toFixed(0)}/100
+              </span>
+            )}
+            {techAnalysis?.pattern_stage && (
+              <span
+                className="px-2 py-0.5 text-xs font-mono rounded"
+                style={{ background: "var(--surface-2)", color: "var(--text-dim)" }}
+              >
+                {techAnalysis.pattern_stage}
+              </span>
+            )}
           </div>
           <p className="text-xs mt-1 font-mono" style={{ color: "var(--text-dim)" }}>
             {new Date(ticket.created_at).toLocaleString()} · {ticket.workflow_type} · {meta.research_model ?? ""}
           </p>
         </div>
 
-        {/* Approve/Reject buttons */}
-        <div className="flex gap-2">
+        {/* Action buttons */}
+        <div className="flex gap-2 flex-wrap">
+          {meta.debug_logs && meta.debug_logs.length > 0 && (
+            <button
+              onClick={handleDownloadDebugLogs}
+              className="px-3 py-2 text-xs font-mono uppercase tracking-wide transition-colors"
+              style={{
+                background: "var(--surface-2)",
+                border: "1px solid var(--border)",
+                borderRadius: "3px",
+                color: "var(--text-dim)",
+                cursor: "pointer",
+              }}
+              title="Download node trace and full LLM prompt as JSON"
+            >
+              ↓ Debug Logs
+            </button>
+          )}
           {ticket.status !== "rejected" && (
             <button
               onClick={() => handleStatus("rejected")}
@@ -321,6 +659,11 @@ export default function TicketClient({ id }: { id: string }) {
               Price Chart · 1Y Daily
               {candles.length > 0 && (
                 <span className="ml-3 normal-case">({candles.length} candles)</span>
+              )}
+              {chartError && (
+                <span className="ml-3 normal-case" style={{ color: "var(--red)" }}>
+                  ⚠ {chartError}
+                </span>
               )}
             </span>
             <button
@@ -406,9 +749,14 @@ export default function TicketClient({ id }: { id: string }) {
         <Section title="Trade Levels">
           <div className="grid grid-cols-3 gap-2">
             <PriceStat label="Entry" value={`${sym}${ticket.entry_price.toFixed(2)}`} color="#3b82f6" />
-            <PriceStat label="Stop" value={`${sym}${ticket.stop_loss.toFixed(2)}`} color="var(--red)" />
-            <PriceStat label="Target" value={`${sym}${ticket.target.toFixed(2)}`} color="var(--green)" />
+            <PriceStat label="Stop"  value={`${sym}${ticket.stop_loss.toFixed(2)}`}  color="var(--red)" />
+            <PriceStat label="Target" value={`${sym}${ticket.target.toFixed(2)}`}   color="var(--green)" />
           </div>
+          {techAnalysis?.entry_type && (
+            <p className="text-xs font-mono mt-1" style={{ color: "var(--text-dim)" }}>
+              Entry type: <span style={{ color: "var(--accent)" }}>{techAnalysis.entry_type}</span>
+            </p>
+          )}
         </Section>
 
         <Section title="Position Sizing">
@@ -431,24 +779,38 @@ export default function TicketClient({ id }: { id: string }) {
           >
             <div className="flex items-center justify-between">
               <span className="text-sm" style={{ color: "var(--text-muted)" }}>Bullish probability</span>
-              <span className="font-mono font-bold text-2xl" style={{ color: probColor }}>
-                {prob}%
-              </span>
+              <span className="font-mono font-bold text-2xl" style={{ color: probColor }}>{prob}%</span>
             </div>
             <div className="h-2 rounded-full overflow-hidden" style={{ background: "var(--border)" }}>
-              <div
-                className="h-full rounded-full transition-all"
-                style={{ width: `${prob}%`, background: probColor }}
-              />
+              <div className="h-full rounded-full transition-all" style={{ width: `${prob}%`, background: probColor }} />
             </div>
             {meta.breadth_zone && (
               <p className="text-xs" style={{ color: "var(--text-dim)" }}>
                 Breadth: {meta.breadth_zone}{meta.breadth_score ? ` (${meta.breadth_score.toFixed(1)})` : ""}
               </p>
             )}
+            {rsIndicators?.rs_composite != null && (
+              <p className="text-xs font-mono" style={{ color: "var(--text-dim)" }}>
+                RS vs {rsIndicators.benchmark_used}: <span style={{ color: rsIndicators.rs_composite >= 0 ? "var(--green)" : "var(--red)" }}>
+                  {rsIndicators.rs_composite >= 0 ? "+" : ""}{rsIndicators.rs_composite.toFixed(1)}%
+                </span>
+              </p>
+            )}
           </div>
         </Section>
       </div>
+
+      {/* Synthesized Score Table (Phase 7) */}
+      {synthesizedScore && <SynthesizedScoreTable score={synthesizedScore} />}
+
+      {/* Scale-Out Plan (Phase 7) */}
+      {scaleOutPlan.length > 0 && <ScaleOutPlanSection plan={scaleOutPlan} sym={sym} />}
+
+      {/* Scenarios (Phase 7) */}
+      {scenarios.length > 0 && <ScenariosSection scenarios={scenarios} />}
+
+      {/* Final Recommendation + Execution Checklist (Phase 7) */}
+      {finalRec && <FinalRecommendationSection recommendation={finalRec} checklist={checklist} />}
 
       {/* Key Triggers + Caveats */}
       {(ticket.key_triggers?.length > 0 || meta.caveats?.length > 0) && (
@@ -499,14 +861,34 @@ export default function TicketClient({ id }: { id: string }) {
         </div>
       )}
 
+      {/* Chain of Thought */}
+      {meta.chain_of_thought && (
+        <div
+          className="p-4 space-y-2"
+          style={{
+            background: "var(--surface)",
+            border: "1px solid var(--border)",
+            borderLeft: "3px solid var(--accent)",
+            borderRadius: "4px",
+          }}
+        >
+          <p className="text-xs font-mono uppercase tracking-widest" style={{ color: "var(--text-dim)" }}>
+            LLM Reasoning
+          </p>
+          <p className="text-sm leading-relaxed" style={{ color: "var(--text-muted)" }}>
+            {meta.chain_of_thought}
+          </p>
+        </div>
+      )}
+
       {/* Context sections */}
       {(meta.entry_rationale || meta.trend_context || meta.volume_context || meta.market_breadth_context) && (
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
           {[
             { label: "Entry Rationale", text: meta.entry_rationale },
-            { label: "Trend Context", text: meta.trend_context },
-            { label: "Volume Context", text: meta.volume_context },
-            { label: "Market Breadth", text: meta.market_breadth_context },
+            { label: "Trend Context",   text: meta.trend_context },
+            { label: "Volume Context",  text: meta.volume_context },
+            { label: "Market Breadth",  text: meta.market_breadth_context },
           ]
             .filter((s) => s.text)
             .map((s) => (

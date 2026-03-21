@@ -16,11 +16,12 @@ scanner = ScannerService()
 class ScanRequest(BaseModel):
     market: str  # "US" or "TASE"
     limit: int = 50
-    symbols: Optional[list[str]] = None  # if set, scan these instead of watchlist
+    symbols: Optional[list[str]] = None        # if set, scan these instead of watchlist
+    watchlist_id: Optional[str] = None         # if set, scope watchlist scan to this list
     min_price: Optional[float] = None
     max_price: Optional[float] = None
-    min_rvol: Optional[float] = None     # relative volume floor (e.g. 0.5 = 50% of own avg)
-    min_atr_pct: Optional[float] = None  # ATR-14 as % of price floor (e.g. 0.5 = 0.5%)
+    min_rvol: Optional[float] = None           # relative volume floor (e.g. 0.5 = 50% of own avg)
+    min_atr_pct: Optional[float] = None        # ATR-14 as % of price floor (e.g. 0.5 = 0.5%)
 
 
 class CandidateOut(BaseModel):
@@ -71,11 +72,12 @@ async def run_scan(req: ScanRequest):
             else:
                 symbols.append(s)
     else:
-        symbols = await scanner.load_symbols(market, db)
+        symbols = await scanner.load_symbols(market, db, watchlist_id=req.watchlist_id)
         if not symbols:
+            scope = f"watchlist '{req.watchlist_id}'" if req.watchlist_id else f"{market} watchlist"
             raise HTTPException(
                 status_code=422,
-                detail=f"No symbols in watchlist for {market}. Add some via /watchlist first."
+                detail=f"No symbols in {scope}. Add some via /watchlist first."
             )
 
     # 2. Create scan_history record (running)
@@ -87,6 +89,7 @@ async def run_scan(req: ScanRequest):
             "max_price": req.max_price,
             "min_rvol": req.min_rvol,
             "min_atr_pct": req.min_atr_pct,
+            "watchlist_id": req.watchlist_id,
         },
     }).execute()
     scan_id = scan_record.data[0]["id"]

@@ -51,18 +51,28 @@ def _yf_symbol(symbol: str, market: str) -> str:
 def _normalize_candles(df, market: str = "US") -> list[Candle]:
     """Convert yfinance DataFrame to list of Candle with epoch-ms timestamps.
     TASE prices are in agorot (1/100 ILS) — divide by 100 to get ILS.
+    Rows with NaN in any OHLC column are dropped — yfinance occasionally returns
+    NaN for partial/holiday sessions, which are not JSON-serializable.
     """
+    import math
+    import pandas as pd
+
     divisor = 100.0 if market.upper() == "TASE" else 1.0
+    # Drop rows where any OHLC value is NaN before iterating
+    clean = df.dropna(subset=["Open", "High", "Low", "Close"])
     candles = []
-    for ts, row in df.iterrows():
+    for ts, row in clean.iterrows():
         epoch_ms = int(ts.timestamp() * 1000)
+        vol = float(row["Volume"]) if not pd.isna(row["Volume"]) else None
+        if vol is not None and math.isnan(vol):
+            vol = None
         candles.append(Candle(
             ts=epoch_ms,
             open=round(float(row["Open"]) / divisor, 4),
             high=round(float(row["High"]) / divisor, 4),
             low=round(float(row["Low"]) / divisor, 4),
             close=round(float(row["Close"]) / divisor, 4),
-            volume=float(row["Volume"]) if row["Volume"] else None,
+            volume=vol,
         ))
     return candles
 

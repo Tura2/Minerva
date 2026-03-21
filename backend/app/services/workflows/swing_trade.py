@@ -31,12 +31,13 @@ from pydantic import ValidationError
 
 from app.config import settings
 from app.models.ticket_validator import TicketOutputValidator
-from app.services.indicators import compute_indicators
+from app.services.indicators import compute_indicators, compute_weekly_indicators
 from app.services.market_breadth import get_market_breadth
 from app.services.openrouter_client import OpenRouterClient
 from app.services.position_sizer_service import compute_position_size
 from app.services.pre_screen import PreScreenResult, pre_screen
 from app.services.prompts import SYSTEM_PROMPT, build_research_prompt
+from app.services.rs_calculator import compute_rs_indicators, compute_rs_rank_in_universe
 
 logger = logging.getLogger(__name__)
 
@@ -64,11 +65,24 @@ class SwingTradeState:
 
     df: Optional[pd.DataFrame] = None
     indicators: Dict[str, Any] = field(default_factory=dict)
+    weekly_indicators: Dict[str, Any] = field(default_factory=dict)
+    rs_indicators: Dict[str, Any] = field(default_factory=dict)
     screen_result: Optional[PreScreenResult] = None
     breadth: Dict[str, Any] = field(default_factory=dict)
     llm_raw: Dict[str, Any] = field(default_factory=dict)
     sizing: Dict[str, Any] = field(default_factory=dict)
+    scale_out_plan: List[Dict[str, Any]] = field(default_factory=list)
     ticket_id: Optional[str] = None
+    debug_logs: List[Dict[str, Any]] = field(default_factory=list)
+
+
+def _trace(state: SwingTradeState, node: str, data: Dict[str, Any]) -> None:
+    """Append a timestamped node snapshot to debug_logs."""
+    state.debug_logs.append({
+        "node": node,
+        "ts": datetime.now(timezone.utc).isoformat(),
+        **data,
+    })
 
 
 async def execute_swing_trade(
@@ -128,6 +142,7 @@ async def execute_swing_trade(
     )
 
     state = await _node_fetch_data(state)
+    state = await _node_fetch_rs(state, db)
     state = await _node_pre_screen(state, force_research)
     state = await _node_fetch_breadth(state)
     state = await _node_llm_research(state)
@@ -171,10 +186,71 @@ async def _node_fetch_data(state: SwingTradeState) -> SwingTradeState:
     if not state.indicators:
         raise WorkflowError(f"Insufficient data to compute indicators for {yf_symbol}")
 
+    state.weekly_indicators = compute_weekly_indicators(df)
+
     logger.info(
         f"[swing_trade] Data fetched: {len(df)} sessions, "
-        f"price={state.indicators.get('price')}"
+        f"price={state.indicators.get('price')}, "
+        f"weekly_trend={state.weekly_indicators.get('weekly_trend', 'n/a')}"
     )
+    _trace(state, "fetch_data", {
+        "sessions": len(df),
+        "price": state.indicators.get("price"),
+        "atr14": state.indicators.get("atr14"),
+        "rsi14": state.indicators.get("rsi14"),
+        "ma50": state.indicators.get("ma50"),
+        "ma200": state.indicators.get("ma200"),
+        "rvol": state.indicators.get("rvol"),
+        "accum_days_20": state.indicators.get("accum_days_20"),
+        "distrib_days_20": state.indicators.get("distrib_days_20"),
+        "vol_dry_up": state.indicators.get("vol_dry_up"),
+        "weekly_trend": state.weekly_indicators.get("weekly_trend"),
+        "weekly_ma10": state.weekly_indicators.get("weekly_ma10"),
+        "weekly_ma20": state.weekly_indicators.get("weekly_ma20"),
+        "weekly_rsi14": state.weekly_indicators.get("weekly_rsi14"),
+    })
+    return state
+
+
+async def _node_fetch_rs(state: SwingTradeState, db) -> SwingTradeState:
+    """
+    Compute Relative Strength vs market benchmark.
+    Also ranks the candidate within the watchlist universe (non-blocking: skipped on timeout).
+    """
+    try:
+        rs = await compute_rs_indicators(state.symbol, state.market)
+        state.rs_indicators = rs
+
+        # Rank within watchlist universe (best-effort, may timeout)
+        composite = rs.get("rs_composite")
+        if composite is not None and not rs.get("error"):
+            try:
+                query = db.table("watchlist_items").select("symbol").eq("market", state.market.upper())
+                result = query.execute()
+                universe = [row["symbol"] for row in result.data]
+                rank_pct = await compute_rs_rank_in_universe(composite, universe, state.market)
+                state.rs_indicators["rs_rank_pct"] = rank_pct
+            except Exception as rank_err:
+                logger.warning(f"[swing_trade] RS rank computation failed: {rank_err}")
+                state.rs_indicators["rs_rank_pct"] = None
+
+        logger.info(
+            f"[swing_trade] RS: composite={rs.get('rs_composite')}, "
+            f"rank={state.rs_indicators.get('rs_rank_pct')}"
+        )
+    except Exception as e:
+        logger.warning(f"[swing_trade] RS node failed (non-fatal): {e}")
+        state.rs_indicators = {"error": str(e)}
+
+    _trace(state, "fetch_rs", {
+        "rs_63": state.rs_indicators.get("rs_63"),
+        "rs_126": state.rs_indicators.get("rs_126"),
+        "rs_189": state.rs_indicators.get("rs_189"),
+        "rs_composite": state.rs_indicators.get("rs_composite"),
+        "rs_rank_pct": state.rs_indicators.get("rs_rank_pct"),
+        "benchmark": state.rs_indicators.get("benchmark_used"),
+        "error": state.rs_indicators.get("error"),
+    })
     return state
 
 
@@ -188,6 +264,14 @@ async def _node_pre_screen(state: SwingTradeState, force: bool) -> SwingTradeSta
     )
     state.screen_result = result
     logger.info(f"[swing_trade] Pre-screen: {result.summary}")
+    _trace(state, "pre_screen", {
+        "passed": result.passed,
+        "summary": result.summary,
+        "checks": result.checks,
+        "vcp_confirmed": result.vcp.get("is_vcp", False) if result.vcp else False,
+        "vcp_contraction_count": result.vcp.get("contraction_count", 0) if result.vcp else 0,
+        "vcp_pivot": result.vcp.get("pivot_buy_point") if result.vcp else None,
+    })
 
     if not result.passed and not force:
         raise PreScreenFailed(result)
@@ -196,7 +280,7 @@ async def _node_pre_screen(state: SwingTradeState, force: bool) -> SwingTradeSta
 
 
 async def _node_fetch_breadth(state: SwingTradeState) -> SwingTradeState:
-    """Fetch market breadth (US only; TASE returns neutral stub)."""
+    """Fetch market breadth. US: Monty's uptrend CSV. TASE: TA-35 MA50 ratio."""
     try:
         state.breadth = get_market_breadth(state.market)
     except Exception as e:
@@ -206,6 +290,13 @@ async def _node_fetch_breadth(state: SwingTradeState) -> SwingTradeState:
             "note": f"Breadth unavailable: {e}",
             "zone": "Neutral",
         }
+    _trace(state, "fetch_breadth", {
+        "available": state.breadth.get("available"),
+        "zone": state.breadth.get("zone"),
+        "overall_ratio": state.breadth.get("overall_ratio"),
+        "composite_score": state.breadth.get("composite_score"),
+        "note": state.breadth.get("note", ""),
+    })
     return state
 
 
@@ -219,7 +310,18 @@ async def _node_llm_research(state: SwingTradeState) -> SwingTradeState:
         breadth=state.breadth,
         portfolio_size=state.portfolio_size,
         max_risk_pct=state.max_risk_pct,
+        weekly_indicators=state.weekly_indicators or None,
+        rs_indicators=state.rs_indicators or None,
     )
+
+    # ── Log the full prompt to debug_logs BEFORE the API call ────────────────
+    _trace(state, "llm_research_prompt", {
+        "model": settings.research_model,
+        "temperature": 0.5,
+        "max_tokens": 3500,
+        "full_prompt": prompt,
+        "system_prompt": SYSTEM_PROMPT,
+    })
 
     client = OpenRouterClient()
     logger.info(f"[swing_trade] Calling LLM ({settings.research_model}) for {state.symbol}")
@@ -228,8 +330,8 @@ async def _node_llm_research(state: SwingTradeState) -> SwingTradeState:
         result = await client.research(
             prompt=prompt,
             system_context=SYSTEM_PROMPT,
-            temperature=0.4,
-            max_tokens=2500,
+            temperature=0.5,
+            max_tokens=3500,
         )
     except Exception as e:
         raise WorkflowError(f"LLM research failed: {e}") from e
@@ -246,6 +348,21 @@ async def _node_llm_research(state: SwingTradeState) -> SwingTradeState:
         f"stop={result.get('stop_loss')}, target={result.get('target')}, "
         f"prob={result.get('bullish_probability')}"
     )
+    _trace(state, "llm_research_response", {
+        "entry_price": result.get("entry_price"),
+        "stop_loss": result.get("stop_loss"),
+        "target": result.get("target"),
+        "bullish_probability": result.get("bullish_probability"),
+        "risk_reward_ratio": result.get("risk_reward_ratio"),
+        "setup_quality": result.get("setup_quality"),
+        "chain_of_thought": result.get("chain_of_thought", ""),
+        "key_triggers": result.get("key_triggers", []),
+        "caveats": result.get("caveats", []),
+        "verdict": (result.get("final_recommendation") or {}).get("verdict"),
+        "setup_score": (result.get("synthesized_score") or {}).get("total"),
+        "pattern_stage": (result.get("technical_analysis") or {}).get("pattern_stage"),
+        "scenarios_count": len(result.get("scenarios") or []),
+    })
     return state
 
 
@@ -273,10 +390,70 @@ def _node_compute_sizing(state: SwingTradeState) -> SwingTradeState:
         risk_pct=state.max_risk_pct,
         market=state.market,
     )
+    total_shares = int(state.sizing.get("shares") or 0)
+    dollar_risk = float(state.sizing.get("dollar_risk") or 0)
+    position_value = float(state.sizing.get("position_value") or 0)
+
+    # Hard cap: never allocate more than the full portfolio (no margin)
+    if position_value > state.portfolio_size and entry > 0:
+        total_shares = int(state.portfolio_size / entry)
+        position_value = round(total_shares * entry, 2)
+        dollar_risk = round(total_shares * (entry - stop), 2)
+        state.sizing["shares"] = total_shares
+        state.sizing["position_value"] = position_value
+        state.sizing["dollar_risk"] = dollar_risk
+        state.sizing["risk_pct_actual"] = round(dollar_risk / state.portfolio_size * 100, 2) if state.portfolio_size else 0
+        state.sizing["capped_by_portfolio"] = True
+        logger.info(
+            f"[swing_trade] Position capped to portfolio size: "
+            f"{total_shares} shares @ {entry} = {position_value} "
+            f"(risk={dollar_risk}, was over {state.portfolio_size})"
+        )
+
+    # Build scale-out plan from LLM scale_out_targets
+    scale_out_raw = llm.get("scale_out_targets") or []
+    scale_out_plan = []
+    alloc_map = [(0.40, "T1"), (0.35, "T2"), (0.25, "T3")]
+    for i, target_obj in enumerate(scale_out_raw[:3]):
+        pct = alloc_map[i][0] if i < len(alloc_map) else 0.34
+        shares_at_target = max(1, round(total_shares * pct)) if total_shares > 0 else 0
+        t_price = float(target_obj.get("price") or 0)
+        r_multiple = round((t_price - entry) / (entry - stop), 2) if (entry != stop and t_price > 0) else None
+        scale_out_plan.append({
+            "label": target_obj.get("label", f"T{i + 1}"),
+            "price": t_price,
+            "share_pct": int(target_obj.get("share_pct") or round(pct * 100)),
+            "shares": shares_at_target,
+            "r_multiple": r_multiple,
+            "partial_value": round(shares_at_target * t_price, 2) if t_price else None,
+        })
+
+    if scale_out_plan:
+        state.scale_out_plan = scale_out_plan
+        # Expected value across targets
+        total_expected = sum(
+            p["shares"] * p["price"] for p in scale_out_plan if p.get("price")
+        )
+        total_cost = total_shares * entry if total_shares else 0
+        state.sizing["expected_gain"] = round(total_expected - total_cost, 2) if total_expected else None
+        state.sizing["expected_r"] = round(
+            (total_expected - total_cost) / dollar_risk, 2
+        ) if (dollar_risk and total_expected) else None
+
     logger.info(
-        f"[swing_trade] Sizing: {state.sizing.get('shares')} shares, "
-        f"risk={state.sizing.get('dollar_risk')} {state.sizing.get('currency')}"
+        f"[swing_trade] Sizing: {total_shares} shares, "
+        f"risk={state.sizing.get('dollar_risk')} {state.sizing.get('currency')}, "
+        f"scale_out_targets={len(scale_out_plan)}"
     )
+    _trace(state, "compute_sizing", {
+        "shares": state.sizing.get("shares"),
+        "position_value": state.sizing.get("position_value"),
+        "dollar_risk": state.sizing.get("dollar_risk"),
+        "risk_pct_actual": state.sizing.get("risk_pct_actual"),
+        "currency": state.sizing.get("currency"),
+        "scale_out_plan": scale_out_plan,
+        "expected_r": state.sizing.get("expected_r"),
+    })
     return state
 
 
@@ -301,16 +478,41 @@ async def _node_persist_ticket(state: SwingTradeState, db) -> Dict[str, Any]:
         errors = "; ".join(f"{err['loc'][0]}: {err['msg']}" for err in e.errors())
         raise WorkflowError(f"Ticket output validation failed: {errors}") from e
 
+    # Extract new rich fields from LLM response
+    synthesized_score = llm.get("synthesized_score") or {}
+    final_rec = llm.get("final_recommendation") or {}
+    tech_analysis = llm.get("technical_analysis") or {}
+
+    setup_score_total = synthesized_score.get("total")
+    verdict = final_rec.get("verdict")
+    entry_type = tech_analysis.get("entry_type") or llm.get("entry_type")
+    rs_rank_pct = state.rs_indicators.get("rs_rank_pct")
+
     metadata = {
+        # Legacy fields (kept for backward compat)
         "entry_rationale": llm.get("entry_rationale", ""),
         "stop_rationale": llm.get("stop_rationale", ""),
         "target_rationale": llm.get("target_rationale", ""),
         "risk_reward_ratio": llm.get("risk_reward_ratio"),
         "setup_quality": llm.get("setup_quality", "C"),
+        "chain_of_thought": llm.get("chain_of_thought", ""),
         "trend_context": llm.get("trend_context", ""),
         "volume_context": llm.get("volume_context", ""),
         "market_breadth_context": llm.get("market_breadth_context", ""),
         "caveats": llm.get("caveats", []),
+        # Rich analytical fields
+        "technical_analysis": tech_analysis,
+        "scale_out_targets": llm.get("scale_out_targets", []),
+        "scale_out_plan": state.scale_out_plan,
+        "scenarios": llm.get("scenarios", []),
+        "synthesized_score": synthesized_score,
+        "execution_checklist": llm.get("execution_checklist", {}),
+        "final_recommendation": final_rec,
+        # Context
+        "rs_indicators": {
+            k: v for k, v in state.rs_indicators.items()
+            if k not in ("error",)
+        },
         "pre_screen": {
             "passed": state.screen_result.passed if state.screen_result else None,
             "checks": state.screen_result.checks if state.screen_result else {},
@@ -318,10 +520,12 @@ async def _node_persist_ticket(state: SwingTradeState, db) -> Dict[str, Any]:
         },
         "breadth_zone": state.breadth.get("zone"),
         "breadth_score": state.breadth.get("composite_score"),
+        "weekly_trend": state.weekly_indicators.get("weekly_trend"),
         "research_model": settings.research_model,
         "portfolio_size": state.portfolio_size,
         "max_risk_pct": state.max_risk_pct,
         "sizing_detail": sizing,
+        "debug_logs": state.debug_logs,
     }
 
     row = {
@@ -337,6 +541,11 @@ async def _node_persist_ticket(state: SwingTradeState, db) -> Dict[str, Any]:
         "bullish_probability": float(llm.get("bullish_probability") or 0),
         "key_triggers": llm.get("key_triggers", []),
         "status": "pending",
+        # New flat columns (005 migration)
+        "rs_rank_pct": rs_rank_pct,
+        "setup_score": int(setup_score_total) if setup_score_total is not None else None,
+        "verdict": verdict if verdict in ("Strong Buy", "Buy", "Watch", "Avoid") else None,
+        "entry_type": entry_type if entry_type in ("current", "breakout") else None,
         "metadata": metadata,
     }
 

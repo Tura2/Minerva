@@ -38,11 +38,20 @@ def _yf_symbol(symbol: str, market: str) -> str:
 class ScannerService:
     """Symbol scanning and filtering service."""
 
-    async def load_symbols(self, market: str, db) -> list[str]:
-        """Load scan universe from watchlist_items for the given market."""
-        result = db.table("watchlist_items").select("symbol").eq("market", market).execute()
+    async def load_symbols(
+        self, market: str, db, watchlist_id: str | None = None
+    ) -> list[str]:
+        """
+        Load scan universe from watchlist_items for the given market.
+        If watchlist_id is provided, only symbols from that list are returned.
+        """
+        query = db.table("watchlist_items").select("symbol").eq("market", market)
+        if watchlist_id:
+            query = query.eq("watchlist_id", watchlist_id)
+        result = query.execute()
         symbols = [row["symbol"] for row in result.data]
-        logger.info(f"Loaded {len(symbols)} symbols from watchlist for market={market}")
+        scope = f"watchlist={watchlist_id}" if watchlist_id else "all watchlists"
+        logger.info(f"Loaded {len(symbols)} symbols for market={market} ({scope})")
         return symbols
 
     async def fetch_market_data(

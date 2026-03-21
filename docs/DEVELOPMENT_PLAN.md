@@ -20,7 +20,7 @@ Reference: [MinervaPRD.md](MinervaPRD.md) · [CLAUDE.md](CLAUDE.md)
 - [x] Root layout with metadata: "Minerva - Trading Research Copilot"
 - [x] Home page: renders "Minerva - Trading Research Copilot" heading
 - [x] `src/lib/apiClient.ts` — Axios instance pointed at `NEXT_PUBLIC_API_URL`
-- [ ] Verify `npm run build` completes without errors on Vercel
+- [x] Verify `npm run build` completes without errors on Vercel
 
 ### 1.3 Database Setup
 - [x] Create Supabase project and note connection strings
@@ -110,12 +110,12 @@ Reference: [MinervaPRD.md](MinervaPRD.md) · [CLAUDE.md](CLAUDE.md)
 
 ## Phase 4 — Risk & Position Sizing
 
-- [ ] Implement `RiskService.compute_position_size(entry, stop, account_size, max_risk_pct)`:
+- [x] Implement `RiskService.compute_position_size(entry, stop, account_size, max_risk_pct)`:
   - Fixed-risk sizing: `quantity = floor(max_risk / (entry - stop))`
   - Validate result against `max_quantity` guardrail
-- [ ] Integrate into `validate_output` workflow node
-- [ ] Market-aware currency formatting in output: USD for US, ILS for TASE
-- [ ] Explicit `max_risk` field in ticket (e.g. `"max_risk_usd": 550.00`)
+- [x] Integrate into `_node_compute_sizing` workflow node (`backend/app/services/workflows/swing_trade.py`)
+- [x] Market-aware currency formatting in output: USD for US, ILS (₪) for TASE
+- [x] Explicit `max_risk` field in ticket
 - [ ] Unit tests: edge cases (stop = entry, negative risk, zero account size)
 
 ---
@@ -158,6 +158,8 @@ Reference: [MinervaPRD.md](MinervaPRD.md) · [CLAUDE.md](CLAUDE.md)
 - [x] Add symbol form: ticker input + market selector (US/TASE) + submit
 - [x] Remove per item with loading state
 - [x] Market filter toggle
+- [x] Symbol icons: nvstly CDN with deterministic color+initials fallback
+- [x] Live quotes: last price + change% fetched via `POST /market/quotes` (batched per market)
 
 ### 5.6 Research Tickets List (`/research`)
 - [x] Full tickets table with entry/stop/target/size/prob/quality/status columns
@@ -173,6 +175,18 @@ Reference: [MinervaPRD.md](MinervaPRD.md) · [CLAUDE.md](CLAUDE.md)
 - [x] Stats: watchlist count, candidate count, ticket totals (pending/approved)
 - [x] Recent tickets table with probability bars
 - [x] Quick navigation cards
+
+### 5.9 UI Polish & Theme
+
+- [x] Light/dark mode toggle in nav (Sun/Moon SVG icons, persisted to localStorage)
+- [x] `ThemeProvider` React context — `.light` CSS class toggled on `<html>`
+- [x] Full CSS variable system: dark default + `.light` overrides
+- [x] "Assistant" Google Font applied site-wide
+- [x] Candidates page: two-panel scan controls (single-symbol search + watchlist scan)
+- [x] `ScoreBar` component with color-coded fill (green ≥70, amber ≥50, dim <50)
+- [x] `POST /market/quotes` batch endpoint for live quote ingestion
+- [x] `POST /scanner/scan` accepts optional `symbols[]` to bypass watchlist
+- [x] `apiClient` interceptor: network-level failures surface human-readable message
 
 ---
 
