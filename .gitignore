@@ -57,3 +57,5 @@ reference/claude-trading-skills/
 
 # ─── Coverage ────────────────────────────────────────────────────────────────
 coverage/
+
+.vercel
