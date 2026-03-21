@@ -156,7 +156,7 @@ export default function WatchlistPage() {
     }
   }
 
-  async function loadItems(watchlistId: string, lists?: Watchlist[]) {
+  async function loadItems(watchlistId: string, _lists?: Watchlist[]) {
     setItemsLoading(true);
     setItems([]);
     setQuotes({});
