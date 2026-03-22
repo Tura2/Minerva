@@ -132,24 +132,24 @@ Portfolio: {currency_sym}{portfolio_size:,.0f} | Max risk per trade: {max_risk_p
 CURRENT PRICE & KEY LEVELS
 ═══════════════════════════════════════════
 Current Price : {currency_sym}{price:.4f}
-MA20          : {currency_sym}{ma20:.4f if ma20 else 'n/a'} ({_pct(price, ma20)} from mean)
-MA50          : {currency_sym}{ma50:.4f if ma50 else 'n/a'} ({_pct(price, ma50)})
-MA150         : {currency_sym}{ma150:.4f if ma150 else 'n/a'} ({_pct(price, ma150)})
-MA200         : {currency_sym}{ma200:.4f if ma200 else 'n/a'} ({_pct(price, ma200)}) {'↑ RISING' if ma200_up else '→ FLAT/FALLING'}
-52w High      : {currency_sym}{high_52w:.4f if high_52w else 'n/a'} ({_pct(price, high_52w)} from high)
-52w Low       : {currency_sym}{low_52w:.4f if low_52w else 'n/a'}
+MA20          : {currency_sym}{f'{ma20:.4f}' if ma20 else 'n/a'} ({_pct(price, ma20)} from mean)
+MA50          : {currency_sym}{f'{ma50:.4f}' if ma50 else 'n/a'} ({_pct(price, ma50)})
+MA150         : {currency_sym}{f'{ma150:.4f}' if ma150 else 'n/a'} ({_pct(price, ma150)})
+MA200         : {currency_sym}{f'{ma200:.4f}' if ma200 else 'n/a'} ({_pct(price, ma200)}) {'↑ RISING' if ma200_up else '→ FLAT/FALLING'}
+52w High      : {currency_sym}{f'{high_52w:.4f}' if high_52w else 'n/a'} ({_pct(price, high_52w)} from high)
+52w Low       : {currency_sym}{f'{low_52w:.4f}' if low_52w else 'n/a'}
 
-ATR-14        : {currency_sym}{atr14:.4f if atr14 else 'n/a'}
-RSI-14        : {rsi14:.1f if rsi14 else 'n/a'} {'⚡ OVERSOLD' if (rsi14 and rsi14 < 35) else '(oversold range)' if (rsi14 and rsi14 < 40) else ''}
-Min stop price: {currency_sym}{min_stop_price:.4f if min_stop_price else 'n/a'} (entry − 0.8×ATR14 = absolute floor)
+ATR-14        : {currency_sym}{f'{atr14:.4f}' if atr14 else 'n/a'}
+RSI-14        : {f'{rsi14:.1f}' if rsi14 else 'n/a'} {'⚡ OVERSOLD' if (rsi14 and rsi14 < 35) else '(oversold range)' if (rsi14 and rsi14 < 40) else ''}
+Min stop price: {currency_sym}{f'{min_stop_price:.4f}' if min_stop_price else 'n/a'} (entry − 0.8×ATR14 = absolute floor)
 
 ═══════════════════════════════════════════
 MEAN REVERSION SIGNALS
 ═══════════════════════════════════════════
 Bollinger Bands (20,2):
-  Upper : {currency_sym}{bb_upper:.4f if bb_upper else 'n/a'}
-  Middle: {currency_sym}{bb_middle:.4f if bb_middle else 'n/a'} (= MA20)
-  Lower : {currency_sym}{bb_lower:.4f if bb_lower else 'n/a'}
+  Upper : {currency_sym}{f'{bb_upper:.4f}' if bb_upper else 'n/a'}
+  Middle: {currency_sym}{f'{bb_middle:.4f}' if bb_middle else 'n/a'} (= MA20)
+  Lower : {currency_sym}{f'{bb_lower:.4f}' if bb_lower else 'n/a'}
   %B    : {f'{bb_pct_b:.2f}' if bb_pct_b is not None else 'n/a'}  (0.0 = at lower band, 1.0 = at upper band; <0 = pierced below)
   Gap to Lower BB: {f'{dist_bb:+.1f}%' if dist_bb is not None else 'n/a'}
 
@@ -223,14 +223,14 @@ STEP 2 — Support-Anchored Entry & Stop:
          confirmation candle — close above yesterday's high, or bounce off a specific price level).
   Stop : Place BELOW the nearest structural support (MA200, prior swing low, gap fill, or significant
          horizontal S/R). This is a structural stop, NOT an arbitrary ATR multiple.
-         Minimum floor: stop >= entry − 0.8×ATR14 ({currency_sym}{atr_stop_min:.4f if atr_stop_min else 'n/a'}).
+         Minimum floor: stop >= entry − 0.8×ATR14 ({currency_sym}{f'{atr_stop_min:.4f}' if atr_stop_min else 'n/a'}).
          Prefer a stop that makes the trade invalid if broken (i.e., below MA200 or below a key swing low).
   Rule : entry_price − stop_loss >= 0.8 × ATR14 (absolute minimum; structural stops are usually wider).
 
 STEP 3 — Mean Reversion Scale-Out Targets:
-  T1 (40% of shares): MA20 = {currency_sym}{ma20:.4f if ma20 else 'n/a'}. This IS the mean reversion — the primary profit target.
+  T1 (40% of shares): MA20 = {currency_sym}{f'{ma20:.4f}' if ma20 else 'n/a'}. This IS the mean reversion — the primary profit target.
                        T1 must be within ±3% of MA20. Do not invent a different T1.
-  T2 (35% of shares): Prior resistance, gap fill, or MA50 ({currency_sym}{ma50:.4f if ma50 else 'n/a'}).
+  T2 (35% of shares): Prior resistance, gap fill, or MA50 ({currency_sym}{f'{ma50:.4f}' if ma50 else 'n/a'}).
                        Target a 1.5R–2R gain from entry.
   T3 (25% of shares): Full trend resumption — near 52w high or measured move up to prior highs.
                        This captures the case where the bounce becomes a new leg up.
