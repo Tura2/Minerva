@@ -207,13 +207,13 @@ def pre_screen(
 # Thresholds tuned per market for the mean-reversion-bounce workflow.
 MR_THRESHOLDS = {
     "US": {
-        "rsi_oversold": 38.0,          # RSI < 38 required
+        "rsi_oversold": 45.0,          # RSI < 45 — mild oversold in an uptrend; RSI 38 was too extreme
         "freefall_buffer_pct": 15.0,   # price must be > MA200 × 0.85 (not a breakdown)
         "max_below_52w_high_pct": 45.0, # not more than 45% below 52w high
         "ma200_trend_sessions": 22,
     },
     "TASE": {
-        "rsi_oversold": 40.0,          # slightly relaxed — TASE is more volatile
+        "rsi_oversold": 48.0,          # relaxed — TASE is more volatile, dips are shallower
         "freefall_buffer_pct": 18.0,
         "max_below_52w_high_pct": 50.0, # wider for TASE drawdown patterns
         "ma200_trend_sessions": 15,
