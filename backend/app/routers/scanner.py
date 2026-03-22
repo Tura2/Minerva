@@ -33,6 +33,7 @@ class CandidateOut(BaseModel):
     score: Optional[float] = None
     screened_at: Optional[str] = None
     is_stale: bool = False
+    applicable_workflows: Optional[list[str]] = None
 
 
 class ScanResponse(BaseModel):
@@ -126,10 +127,14 @@ async def run_scan(req: ScanRequest):
         logger.error(f"Scan failed: {e}")
         raise HTTPException(status_code=500, detail=f"Scan failed: {e}")
 
+    def _candidate_to_out(c: dict) -> CandidateOut:
+        applicable = (c.get("metadata") or {}).get("applicable_workflows")
+        return CandidateOut(**{**c, "applicable_workflows": applicable})
+
     return ScanResponse(
         scan_id=scan_id,
         market=market,
-        candidates=[CandidateOut(**c) for c in candidates],
+        candidates=[_candidate_to_out(c) for c in candidates],
         total_in_watchlist=len(symbols),
         total_passed=len(candidates),
         ran_at=ran_at,
@@ -181,7 +186,8 @@ async def get_recent_candidates(
                 is_stale = dt < stale_cutoff
             except (ValueError, AttributeError):
                 pass
-        rows.append({**row, "is_stale": is_stale})
+        applicable_workflows = (row.get("metadata") or {}).get("applicable_workflows")
+        rows.append({**row, "is_stale": is_stale, "applicable_workflows": applicable_workflows})
     return rows
 
 

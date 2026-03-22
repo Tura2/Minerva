@@ -3,36 +3,70 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { executeResearch } from "@/lib/api/research";
-import { ApiError, Market, PreScreenError } from "@/lib/types";
+import { ApiError, Market, PreScreenError, WorkflowType } from "@/lib/types";
 
-const CHECK_LABELS: Record<string, string> = {
-  price_above_ma150: "Price above MA150",
-  price_above_ma200: "Price above MA200",
-  ma150_above_ma200: "MA150 > MA200",
-  ma200_trending_up: "MA200 trending up (30-day)",
-  price_above_ma50: "Price above MA50",
-  above_52w_low_25pct: "≥25% above 52-week low",
-  within_52w_high_25pct: "Within 25% of 52-week high",
-  min_volume: "Minimum volume threshold",
+const SWING_CHECK_LABELS: Record<string, string> = {
+  price_above_ma150:       "Price above MA150",
+  price_above_ma200:       "Price above MA200",
+  ma150_above_ma200:       "MA150 > MA200",
+  ma200_trending_up:       "MA200 trending up",
+  price_above_ma50:        "Price above MA50",
+  above_52w_low_25pct:     "≥25% above 52-week low",
+  within_52w_high_25pct:   "Within 25% of 52-week high",
+  min_volume:              "Minimum volume threshold",
+};
+
+const MR_CHECK_LABELS: Record<string, string> = {
+  long_term_trend_intact: "Long-term trend intact (price > MA200)",
+  ma200_rising:           "MA200 rising",
+  price_below_mean:       "Price below MA20 (dip confirmed)",
+  rsi_oversold:           "RSI oversold",
+  not_in_freefall:        "Not in freefall (> MA200 × 0.85)",
+  not_extended_down:      "Not extended down (<45% below 52w high)",
+  min_volume:             "Minimum volume threshold",
+};
+
+const WORKFLOW_META: Record<WorkflowType, { label: string; description: string; color: string }> = {
+  "technical-swing": {
+    label: "Technical Swing",
+    description: "Minervini Stage 2 breakout — buy new highs from VCP base",
+    color: "var(--blue)",
+  },
+  "mean-reversion-bounce": {
+    label: "Mean Reversion",
+    description: "Oversold bounce — buy the dip in a confirmed uptrend",
+    color: "var(--accent)",
+  },
 };
 
 interface Props {
   symbol: string;
   market: Market;
+  applicable_workflows?: WorkflowType[];
   onClose: () => void;
 }
 
-export default function ResearchModal({ symbol, market, onClose }: Props) {
+export default function ResearchModal({ symbol, market, applicable_workflows, onClose }: Props) {
   const router = useRouter();
   const currency = market === "TASE" ? "ILS (₪)" : "USD ($)";
   const currencyPrefix = market === "TASE" ? "₪" : "$";
 
+  // Default workflow: first in applicable list, or "technical-swing" as universal fallback
+  const defaultWorkflow: WorkflowType =
+    (applicable_workflows?.[0] as WorkflowType) ?? "technical-swing";
+
+  const [selectedWorkflow, setSelectedWorkflow] = useState<WorkflowType>(defaultWorkflow);
   const [portfolioSize, setPortfolioSize] = useState<string>("");
   const [maxRiskPct, setMaxRiskPct] = useState<string>("1.0");
   const [forceRefresh, setForceRefresh] = useState(false);
   const [loading, setLoading] = useState(false);
   const [preScreenError, setPreScreenError] = useState<PreScreenError | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  // Show workflow picker only when ≥2 workflows qualify
+  const showPicker = (applicable_workflows?.length ?? 0) >= 2;
+  const checkLabels =
+    selectedWorkflow === "mean-reversion-bounce" ? MR_CHECK_LABELS : SWING_CHECK_LABELS;
 
   async function handleSubmit(force = false) {
     const size = parseFloat(portfolioSize);
@@ -55,6 +89,7 @@ export default function ResearchModal({ symbol, market, onClose }: Props) {
       const ticket = await executeResearch({
         symbol,
         market,
+        workflow_type: selectedWorkflow,
         portfolio_size: size,
         max_risk_pct: riskPct,
         force,
@@ -79,6 +114,8 @@ export default function ResearchModal({ symbol, market, onClose }: Props) {
       setLoading(false);
     }
   }
+
+  const workflowMeta = WORKFLOW_META[selectedWorkflow];
 
   return (
     <div
@@ -118,7 +155,7 @@ export default function ResearchModal({ symbol, market, onClose }: Props) {
               {market}
             </span>
             <p className="text-xs mt-0.5" style={{ color: "var(--text-dim)" }}>
-              technical-swing research
+              {workflowMeta.label} research
             </p>
           </div>
           <button
@@ -132,6 +169,47 @@ export default function ResearchModal({ symbol, market, onClose }: Props) {
         </div>
 
         <div className="px-5 py-4 space-y-4">
+          {/* ── Workflow Picker (shown when ≥2 workflows qualify) ── */}
+          {showPicker && !preScreenError && (
+            <div className="space-y-2">
+              <p className="text-xs uppercase tracking-widest font-semibold" style={{ color: "var(--text-dim)" }}>
+                Strategy — 2 setups detected
+              </p>
+              <div className="grid grid-cols-2 gap-2">
+                {(applicable_workflows as WorkflowType[]).map((wf) => {
+                  const meta = WORKFLOW_META[wf];
+                  const active = selectedWorkflow === wf;
+                  return (
+                    <button
+                      key={wf}
+                      onClick={() => {
+                        setSelectedWorkflow(wf);
+                        setPreScreenError(null);
+                        setErrorMessage(null);
+                      }}
+                      className="text-left p-3 rounded-sm transition-colors"
+                      style={{
+                        background: active ? "var(--surface-2)" : "transparent",
+                        border: `1px solid ${active ? meta.color : "var(--border)"}`,
+                        cursor: "pointer",
+                      }}
+                    >
+                      <p
+                        className="text-xs font-mono font-semibold"
+                        style={{ color: active ? meta.color : "var(--text-muted)" }}
+                      >
+                        {meta.label}
+                      </p>
+                      <p className="text-xs mt-0.5" style={{ color: "var(--text-dim)" }}>
+                        {meta.description}
+                      </p>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
           {/* Pre-screen failure block */}
           {preScreenError && (
             <div
@@ -145,7 +223,6 @@ export default function ResearchModal({ symbol, market, onClose }: Props) {
                 {preScreenError.pre_screen_summary}
               </p>
 
-              {/* Check results */}
               <ul className="space-y-1">
                 {Object.entries(preScreenError.checks).map(([key, passed]) => (
                   <li key={key} className="flex items-center gap-2 text-xs">
@@ -156,13 +233,12 @@ export default function ResearchModal({ symbol, market, onClose }: Props) {
                       {passed ? "✓" : "✗"}
                     </span>
                     <span style={{ color: passed ? "var(--text-muted)" : "#fca5a5" }}>
-                      {CHECK_LABELS[key] ?? key}
+                      {checkLabels[key] ?? key}
                     </span>
                   </li>
                 ))}
               </ul>
 
-              {/* VCP info */}
               {preScreenError.vcp && (
                 <p className="text-xs" style={{ color: "var(--text-dim)" }}>
                   VCP contractions detected: {preScreenError.vcp.contraction_count}
@@ -170,14 +246,13 @@ export default function ResearchModal({ symbol, market, onClose }: Props) {
                 </p>
               )}
 
-              {/* Force button */}
               <button
                 onClick={() => handleSubmit(true)}
                 disabled={loading}
                 className="w-full py-2 text-xs font-semibold font-mono tracking-wide uppercase transition-colors"
                 style={{
                   background: loading ? "var(--surface-2)" : "#78350f",
-                  border: "1px solid #f59e0b",
+                  border: "1px solid var(--accent)",
                   borderRadius: "2px",
                   color: loading ? "var(--text-dim)" : "var(--accent)",
                   cursor: loading ? "not-allowed" : "pointer",
@@ -259,7 +334,6 @@ export default function ResearchModal({ symbol, market, onClose }: Props) {
                 </p>
               </div>
 
-              {/* Force refresh checkbox */}
               <label className="flex items-center gap-2 cursor-pointer">
                 <input
                   type="checkbox"
@@ -274,7 +348,6 @@ export default function ResearchModal({ symbol, market, onClose }: Props) {
             </>
           )}
 
-          {/* Generic error */}
           {errorMessage && (
             <p
               className="text-xs p-2 rounded"
@@ -284,7 +357,6 @@ export default function ResearchModal({ symbol, market, onClose }: Props) {
             </p>
           )}
 
-          {/* Actions */}
           <div className="flex gap-2 pt-1">
             <button
               onClick={onClose}
@@ -306,9 +378,9 @@ export default function ResearchModal({ symbol, market, onClose }: Props) {
                 className="flex-[2] py-2 text-xs font-semibold font-mono uppercase tracking-wide transition-colors"
                 style={{
                   background: loading || !portfolioSize ? "var(--surface-2)" : "#1e3a5f",
-                  border: "1px solid var(--blue)",
+                  border: `1px solid ${workflowMeta.color}`,
                   borderRadius: "2px",
-                  color: loading || !portfolioSize ? "var(--text-dim)" : "#93c5fd",
+                  color: loading || !portfolioSize ? "var(--text-dim)" : workflowMeta.color,
                   cursor: loading || !portfolioSize ? "not-allowed" : "pointer",
                 }}
               >

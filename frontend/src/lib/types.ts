@@ -22,6 +22,8 @@ export interface WatchlistItem {
   notes: string | null;
 }
 
+export type WorkflowType = "technical-swing" | "mean-reversion-bounce";
+
 export interface Candidate {
   id: string;
   symbol: string;
@@ -31,6 +33,7 @@ export interface Candidate {
   score: number;
   screened_at: string;
   is_stale?: boolean;
+  applicable_workflows?: WorkflowType[];
 }
 
 export interface ScanResult {
@@ -110,13 +113,17 @@ export interface DebugLogEntry {
 
 export interface TechnicalAnalysis {
   entry_price: number;
-  entry_type: "current" | "breakout";
+  entry_type: "current" | "breakout" | "buy_stop";
   stop_loss: number;
   atr_stop_check: "valid" | "violated";
   pivot_level: number | null;
   key_support: number[];
   key_resistance: number[];
-  pattern_stage: "pre-vcp" | "developing" | "entry-ready" | "extended";
+  // swing workflow stages
+  pattern_stage: "pre-vcp" | "developing" | "entry-ready" | "extended"
+    // mean-reversion workflow stages
+    | "approaching-support" | "at-support" | "capitulating" | "reversing"
+    | string;
 }
 
 export interface ScaleOutTarget {
@@ -145,13 +152,21 @@ export interface SynthesizedScoreDimension {
 }
 
 export interface SynthesizedScore {
-  trend_template: SynthesizedScoreDimension;
-  vcp_pattern: SynthesizedScoreDimension;
-  volume_profile: SynthesizedScoreDimension;
-  rs_strength: SynthesizedScoreDimension;
-  breadth_context: SynthesizedScoreDimension;
-  weekly_alignment: SynthesizedScoreDimension;
+  // technical-swing dimensions
+  trend_template?: SynthesizedScoreDimension;
+  vcp_pattern?: SynthesizedScoreDimension;
+  volume_profile?: SynthesizedScoreDimension;
+  rs_strength?: SynthesizedScoreDimension;
+  breadth_context?: SynthesizedScoreDimension;
+  weekly_alignment?: SynthesizedScoreDimension;
+  // mean-reversion-bounce dimensions
+  long_term_trend?: SynthesizedScoreDimension;
+  dip_depth_quality?: SynthesizedScoreDimension;
+  exhaustion_signals?: SynthesizedScoreDimension;
+  support_confluence?: SynthesizedScoreDimension;
+  rs_quality?: SynthesizedScoreDimension;
   total: number;
+  [key: string]: SynthesizedScoreDimension | number | undefined;
 }
 
 export interface ExecutionChecklist {
@@ -235,7 +250,7 @@ export interface ResearchTicket {
 export interface ExecuteResearchRequest {
   symbol: string;
   market: Market;
-  workflow_type?: string;
+  workflow_type?: WorkflowType | string;
   portfolio_size: number;
   max_risk_pct: number;
   force?: boolean;

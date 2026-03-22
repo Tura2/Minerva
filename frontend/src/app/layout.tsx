@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import "./globals.css";
 import Nav from "@/components/Nav";
 import { ThemeProvider } from "@/lib/ThemeProvider";
+import { Analytics } from "@vercel/analytics/next";
 
 export const metadata: Metadata = {
   title: "Minerva — Trading Research Copilot",
@@ -15,6 +16,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <ThemeProvider>
           <Nav />
           <main className="max-w-7xl mx-auto px-6 py-8">{children}</main>
+          <Analytics />
         </ThemeProvider>
       </body>
     </html>

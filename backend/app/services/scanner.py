@@ -1,6 +1,10 @@
 """
 Scanner Service — fetches OHLC via yfinance, applies screener filters.
 Symbol universe comes from the watchlist_items table (not CSV files).
+
+After RVOL/ATR% filtering, each passing symbol is classified against both
+pre-screen gates (technical-swing + mean-reversion-bounce) and tagged with
+applicable_workflows[] so the frontend can offer the right workflow picker.
 """
 
 import yfinance as yf
@@ -8,6 +12,9 @@ import pandas as pd
 from typing import Any
 from datetime import datetime, timezone
 import logging
+
+from app.services.indicators import compute_indicators
+from app.services.pre_screen import pre_screen, pre_screen_mean_reversion
 
 logger = logging.getLogger(__name__)
 
@@ -58,7 +65,7 @@ class ScannerService:
         self,
         symbols: list[str],
         market: str,
-        period: str = "1mo",
+        period: str = "1y",
     ) -> dict[str, pd.DataFrame]:
         """
         Fetch OHLC + volume for a list of symbols via yfinance.
@@ -146,6 +153,10 @@ class ScannerService:
                     continue
 
                 score = self._compute_score(rvol, atr_pct)
+
+                # ── Workflow classification (deterministic pre-screen gates) ──────
+                applicable_workflows = self._classify_workflows(df, symbol, market)
+
                 candidates.append({
                     "symbol": symbol,
                     "market": market,
@@ -156,6 +167,7 @@ class ScannerService:
                     "metadata": {
                         "rvol": round(rvol, 2),
                         "atr_pct": round(atr_pct, 3),
+                        "applicable_workflows": applicable_workflows,
                     },
                 })
 
@@ -192,3 +204,58 @@ class ScannerService:
         ATR% weighted equally with RVOL.
         """
         return (min(rvol, 3.0) * 10) + (atr_pct * 10)
+
+    def _classify_workflows(
+        self, df: pd.DataFrame, symbol: str, market: str
+    ) -> list[str]:
+        """
+        Run both pre-screen gates and return which workflows the symbol qualifies for.
+
+        Requires 1y of OHLC data (already fetched at this point with period="1y").
+        Failures are non-fatal — if classification errors, defaults to ["technical-swing"].
+        """
+        try:
+            # Normalize column names for compute_indicators (expects lowercase)
+            df_norm = df.copy()
+            df_norm.columns = [c.lower() for c in df_norm.columns]
+            df_norm.index = pd.to_datetime(df_norm.index)
+            df_norm = df_norm.sort_index()
+
+            # TASE agorot → ILS conversion (same as workflow)
+            if market.upper() == "TASE":
+                for col in ("open", "high", "low", "close"):
+                    if col in df_norm.columns:
+                        df_norm[col] = df_norm[col] / 100.0
+
+            indicators = compute_indicators(df_norm)
+            if not indicators:
+                return ["technical-swing"]
+
+            workflows: list[str] = []
+
+            swing_result = pre_screen(
+                symbol=symbol, market=market, df=df_norm, indicators=indicators
+            )
+            if swing_result.passed:
+                workflows.append("technical-swing")
+
+            mr_result = pre_screen_mean_reversion(
+                symbol=symbol, market=market, df=df_norm, indicators=indicators
+            )
+            if mr_result.passed:
+                workflows.append("mean-reversion-bounce")
+
+            # Fallback: if nothing qualifies but the symbol passed RVOL/ATR filters,
+            # offer technical-swing as the default so the user can still research it.
+            if not workflows:
+                workflows = ["technical-swing"]
+
+            logger.debug(
+                f"[scanner] {symbol} applicable_workflows={workflows} "
+                f"(swing={swing_result.passed}, mr={mr_result.passed})"
+            )
+            return workflows
+
+        except Exception as e:
+            logger.warning(f"[scanner] Workflow classification failed for {symbol}: {e}")
+            return ["technical-swing"]

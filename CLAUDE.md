@@ -429,8 +429,13 @@ Frontend market data endpoint (`/market/history`) normalizes OHLC:
 - Keep market-aware defaults (USD/ILS, trading hours) consistent across all workflow nodes
 - Prefer deterministic validation early and LLM calls late in the pipeline
 
-### Codebase State (updated 2026-03-21)
+### Codebase State (updated 2026-03-22)
 
+- **mean-reversion-bounce workflow added (2026-03-22):** second workflow alongside `technical-swing`. Files: `workflows/mean_reversion.py`, `prompts_mean_reversion.py`. Pre-screen gate in `pre_screen.py` (`pre_screen_mean_reversion()`). New indicators in `indicators.py` (`compute_mean_reversion_indicators()`): Bollinger Bands (20,2), Capitulation Volume detector, RSI Divergence.
+- **Workflow auto-detection in scanner (2026-03-22):** Scanner now fetches `period="1y"` (was `"1mo"`) and runs both pre-screen gates per candidate. Results stored in `candidates.metadata.applicable_workflows[]`. Frontend candidate card shows `Swing`/`MR` badges. `ResearchModal` shows a strategy picker when both workflows qualify.
+- **WORKFLOW_REGISTRY in research.py:** dispatcher maps `workflow_type` string → executor function. Adding a new workflow = one dict entry.
+- **SynthesizedScoreTable is now dynamic:** reads all dimension keys from the JSON object; works for both swing (6 Minervini dimensions) and MR (6 MR dimensions) without any hardcoded key list.
+- **Vercel Analytics added:** `@vercel/analytics` installed; `<Analytics />` mounted in `frontend/src/app/layout.tsx`.
 - **Phase 7 complete:** rich analytical depth — RS scoring, multi-target scale-out, 4-scenario planning, Synthesized Setup Score, Final Recommendation, execution checklist
 - **Phase 6 complete:** persistence & data integrity — output validation (14 tests), 24h dedup, scan history panel, stale data warnings, updated_at trigger
 - **Phase 5 complete:** full frontend UI — watchlist, candidates, research execute flow, ticket detail, dashboard
@@ -458,6 +463,10 @@ Frontend market data endpoint (`/market/history`) normalizes OHLC:
 - **Port gotcha:** Windows Hyper-V reserves port 8000 range. Run backend on `--port 8001`; set `NEXT_PUBLIC_API_URL=http://localhost:8001` in `frontend/.env.local`
 
 ### Known Gotchas
+
+- **Scanner period change:** Scanner now fetches `period="1y"` for workflow classification. For large watchlists (20+ symbols) this increases scan time ~2-3×. Acceptable — scans are background operations.
+- **MR entry_type "buy_stop":** The MR workflow uses `"buy_stop"` as an entry type internally. The DB column constraint only accepts `"current"` or `"breakout"`, so `buy_stop` is mapped to `"breakout"` at persist time. The original value is preserved in `metadata.technical_analysis.entry_type`.
+- **MR synthesized_score keys differ from swing:** Swing uses `trend_template/vcp_pattern/...`; MR uses `long_term_trend/dip_depth_quality/...`. `SynthesizedScoreTable` reads keys dynamically — both render correctly.
 - **TASE yfinance symbols:** Always append `.TA` suffix (e.g., `OPCE` → `OPCE.TA`). Handled in scanner and workflow automatically.
 - **langgraph versions:** Use `langgraph>=1.0.0` + `langchain-core>=0.3.0`. Old pinned versions (0.2.x) cause dependency conflicts.
 - **Windows Unicode in scripts:** Add `sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')` when printing non-ASCII (e.g., ₪, ✓).

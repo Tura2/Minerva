@@ -1,9 +1,126 @@
 # Minerva — Workflows & Skill Improvement Roadmap
 
-> Last updated: 2026-03-19
+> Last updated: 2026-03-22
 > See also: CLAUDE.md §"Codebase State" for applied fixes
 
-## 1. Current Workflow: `technical-swing`
+## Registered Workflows
+
+| workflow_type            | File                          | Strategy                      | Pre-Screen                                 |
+| ------------------------ | ----------------------------- | ----------------------------- | ------------------------------------------ |
+| `technical-swing`        | `workflows/swing_trade.py`    | Minervini Stage 2 breakout    | 7 Trend Template checks + VCP              |
+| `mean-reversion-bounce`  | `workflows/mean_reversion.py` | Oversold bounce in uptrend    | 7 MR checks (RSI<38, price<MA20, >MA200)   |
+
+Both workflows use the identical node structure, JSON output contract, and DB schema.
+The frontend renders tickets from both workflows without any conditional logic.
+
+---
+
+## 2. Workflow: `mean-reversion-bounce`
+
+### Pipeline Overview
+
+Identical node order to `technical-swing`. Only the pre-screen gate, indicator set, and LLM prompt differ.
+
+```
+POST /research/execute  (workflow_type="mean-reversion-bounce")
+        │
+        ▼
+[Dedup Check] ──── hit ────► return cached ticket (24h window)
+        │ miss
+        ▼
+ Node 1: fetch_data       — yfinance OHLC (1y) + indicators + MR indicators (BB, cap vol, RSI div)
+        │
+        ▼
+ Node 2: fetch_rs         — RS vs benchmark + universe rank (non-blocking)
+        │
+        ▼
+ Node 3: pre_screen_mr    — Mean Reversion gate (7 checks)
+        │ fail (force=false)        │ pass (or force=true)
+        ▼                           ▼
+  HTTP 422 with                Node 4: fetch_breadth
+  pre_screen details                   │
+                                       ▼
+                               Node 5: llm_research   ← MR prompt (floor, not breakout)
+                                       │
+                                       ▼
+                               Node 6: compute_sizing  — T1=MA20, T2=resistance, T3=full trend
+                                       │
+                                       ▼
+                               Node 7: persist_ticket  — workflow_type="mean-reversion-bounce"
+```
+
+---
+
+### Pre-Screen: Mean Reversion Gate (7 checks)
+
+| Check | Condition | Rationale |
+| ----- | --------- | --------- |
+| `long_term_trend_intact` | `price > ma200` | Only buy dips in confirmed uptrends |
+| `ma200_rising` | MA200 slope positive (22/15 sessions) | Structural foundation |
+| `price_below_mean` | `price < ma20` | Short-term dip from mean confirmed |
+| `rsi_oversold` | `rsi14 < 38` (US) / `< 40` (TASE) | Quantified oversold condition |
+| `not_in_freefall` | `price > ma200 × 0.85` | Dip, not breakdown |
+| `not_extended_down` | Less than 45% below 52w high | Avoids structural damage |
+| `min_volume` | Same RVOL gate as swing | Liquidity floor |
+
+VCP detection is computed but **non-blocking** (MR setups rarely have VCPs).
+
+---
+
+### New Indicators (computed by `compute_mean_reversion_indicators()`)
+
+| Indicator | Description |
+| --------- | ----------- |
+| `bb_upper/middle/lower` | Bollinger Bands (20, 2) |
+| `bb_pct_b` | Where price sits: 0 = lower band, 1 = upper band, <0 = pierced below |
+| `distance_from_lower_bb_pct` | % gap between price and lower band |
+| `capitulation_detected` | Any down-day in last 10 sessions with volume ≥ 2× 50d avg |
+| `capitulation_vol_ratio` | Peak volume ratio on that day |
+| `capitulation_days_ago` | Sessions since the capitulation day |
+| `rsi_divergence` | True if price made lower low but RSI made higher low (30-session window) |
+| `rsi_trough_1/2` | The two RSI lows used for divergence detection |
+| `price_low_1/2` | Corresponding price lows |
+
+---
+
+### LLM Prompt Philosophy
+
+- **System role:** Mean reversion specialist. Hunts FLOORS, not breakouts.
+- **Entry type:** `"current"` (buy at support now) or `"buy_stop"` (wait for first bounce confirmation)
+- **Stop:** Structural — below MA200, swing low, or gap fill. ATR minimum is an absolute floor only.
+- **T1 (40%):** MA20 ± 3% — the primary mean-reversion target (enforced in prompt rules)
+- **T2 (35%):** Prior resistance, gap fill, or MA50
+- **T3 (25%):** Full trend resumption / 52w high area
+- **R:R minimum:** 1.5:1 (relaxed from 2:1 — MR setups are higher-frequency, tighter stops)
+
+### Synthesized Score Dimensions (MR)
+
+| Dimension | What it measures |
+| --------- | ---------------- |
+| `long_term_trend` | MA200 slope + price above MA150/MA200 |
+| `dip_depth_quality` | RSI level + %B position + distance from MA20 |
+| `exhaustion_signals` | Capitulation vol ratio + RSI divergence |
+| `support_confluence` | How many S/R layers converge at entry |
+| `breadth_context` | Market breadth zone (shared with swing) |
+| `rs_quality` | RS rank — leader temporarily weak vs laggard in distress |
+
+---
+
+### Workflow Auto-Detection (Scanner)
+
+The scanner (`scanner.py`) now runs **both** pre-screen gates per candidate symbol after the RVOL/ATR filter passes. Results are stored in `candidates.metadata.applicable_workflows[]`.
+
+The frontend candidate card shows `Swing` / `MR` / both badges. Clicking **Research**:
+
+- 1 workflow → opens ResearchModal pre-filled with that workflow
+- 2 workflows → shows a strategy picker step before the form
+- 0 workflows → falls back to `["technical-swing"]` (safety default)
+
+**Scanner data period changed:** `period="1mo"` → `period="1y"` to supply enough history for MA200 computation during classification. Scan runtime will be slightly longer for large watchlists.
+
+---
+
+## 1. Workflow: `technical-swing` (Minervini Breakout)
 
 ### Pipeline Overview
 

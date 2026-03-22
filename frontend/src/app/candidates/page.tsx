@@ -74,7 +74,11 @@ export default function CandidatesPage() {
   const searchRef = useRef<HTMLInputElement>(null);
 
   // Research modal
-  const [researchTarget, setResearchTarget] = useState<{ symbol: string; market: Market } | null>(null);
+  const [researchTarget, setResearchTarget] = useState<{
+    symbol: string;
+    market: Market;
+    applicable_workflows?: import("@/lib/types").WorkflowType[];
+  } | null>(null);
 
   async function loadCandidates(market?: Market) {
     try {
@@ -165,6 +169,7 @@ export default function CandidatesPage() {
         <ResearchModal
           symbol={researchTarget.symbol}
           market={researchTarget.market}
+          applicable_workflows={researchTarget.applicable_workflows}
           onClose={() => setResearchTarget(null)}
         />
       )}
@@ -403,7 +408,7 @@ export default function CandidatesPage() {
         <div
           className="grid px-4 py-2 text-xs font-semibold uppercase tracking-widest"
           style={{
-            gridTemplateColumns: "80px 72px 90px 90px 1fr 130px 100px",
+            gridTemplateColumns: "80px 72px 90px 90px 1fr 120px 130px 100px",
             borderBottom: "1px solid var(--border)",
             color: "var(--text-dim)",
           }}
@@ -413,6 +418,7 @@ export default function CandidatesPage() {
           <span className="text-right">Price</span>
           <span className="text-right">Volume</span>
           <span className="pl-2">Score</span>
+          <span>Strategy</span>
           <span>Screened</span>
           <span className="text-right">Action</span>
         </div>
@@ -438,7 +444,7 @@ export default function CandidatesPage() {
               key={c.id}
               className="grid items-center px-4 py-3 transition-colors"
               style={{
-                gridTemplateColumns: "80px 72px 90px 90px 1fr 130px 100px",
+                gridTemplateColumns: "80px 72px 90px 90px 1fr 120px 130px 100px",
                 borderBottom: "1px solid var(--border-subtle)",
               }}
             >
@@ -468,6 +474,24 @@ export default function CandidatesPage() {
                 <ScoreBar score={c.score ?? 0} />
               </div>
 
+              {/* Workflow badge(s) */}
+              <div className="flex flex-wrap gap-1">
+                {(c.applicable_workflows ?? ["technical-swing"]).map((wf) => (
+                  <span
+                    key={wf}
+                    className="px-1.5 py-0.5 text-xs font-mono rounded"
+                    style={{
+                      background: wf === "mean-reversion-bounce" ? "var(--accent-dim)" : "var(--blue-dim)",
+                      color: wf === "mean-reversion-bounce" ? "var(--accent)" : "var(--blue)",
+                      whiteSpace: "nowrap",
+                    }}
+                    title={wf}
+                  >
+                    {wf === "mean-reversion-bounce" ? "MR" : "Swing"}
+                  </span>
+                ))}
+              </div>
+
               <span className="text-xs flex items-center gap-1" style={{ color: "var(--text-dim)" }}>
                 {c.is_stale && (
                   <span title="Data older than 24h" style={{ color: "var(--accent)" }}>⚠</span>
@@ -477,7 +501,13 @@ export default function CandidatesPage() {
 
               <div className="flex justify-end">
                 <button
-                  onClick={() => setResearchTarget({ symbol: c.symbol, market: c.market })}
+                  onClick={() =>
+                    setResearchTarget({
+                      symbol: c.symbol,
+                      market: c.market,
+                      applicable_workflows: c.applicable_workflows,
+                    })
+                  }
                   className="px-3 py-1 text-xs font-semibold transition-colors rounded-sm"
                   style={{
                     background: "var(--blue-dim)",

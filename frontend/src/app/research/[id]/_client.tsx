@@ -138,19 +138,36 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 
 // ── Rich analytical sections ─────────────────────────────────────────────────
 
-const SCORE_DIMENSIONS = [
-  { key: "trend_template",   label: "Trend Template" },
-  { key: "vcp_pattern",      label: "VCP Pattern" },
-  { key: "volume_profile",   label: "Volume Profile" },
-  { key: "rs_strength",      label: "RS Strength" },
-  { key: "breadth_context",  label: "Market Breadth" },
-  { key: "weekly_alignment", label: "Weekly Align" },
-] as const;
+// Labels for all known dimension keys across all workflows.
+const DIMENSION_LABELS: Record<string, string> = {
+  // technical-swing
+  trend_template:   "Trend Template",
+  vcp_pattern:      "VCP Pattern",
+  volume_profile:   "Volume Profile",
+  rs_strength:      "RS Strength",
+  breadth_context:  "Market Breadth",
+  weekly_alignment: "Weekly Align",
+  // mean-reversion-bounce
+  long_term_trend:   "Long-Term Trend",
+  dip_depth_quality: "Dip Quality",
+  exhaustion_signals:"Exhaustion",
+  support_confluence:"Support",
+  rs_quality:        "RS Quality",
+};
 
 function SynthesizedScoreTable({ score }: { score: SynthesizedScore }) {
   const total = score.total ?? 0;
   const verdictColor = total >= 42 ? "#4ade80" : total >= 34 ? "var(--accent)" : total >= 25 ? "#f97316" : "var(--red)";
   const verdictLabel = total >= 42 ? "Strong Buy" : total >= 34 ? "Buy" : total >= 25 ? "Watch" : "Avoid";
+
+  // Dynamically extract dimension entries — works for both swing and MR workflows
+  const dimensions = Object.entries(score)
+    .filter(([key, val]) => key !== "total" && typeof val === "object" && val !== null)
+    .map(([key, val]) => ({
+      key,
+      label: DIMENSION_LABELS[key] ?? key.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()),
+      dim: val as { score: number; note: string },
+    }));
 
   return (
     <Section title="Synthesized Setup Score">
@@ -175,9 +192,7 @@ function SynthesizedScoreTable({ score }: { score: SynthesizedScore }) {
               </tr>
             </thead>
             <tbody>
-              {SCORE_DIMENSIONS.map(({ key, label }) => {
-                const dim = score[key];
-                if (!dim) return null;
+              {dimensions.map(({ key, label, dim }) => {
                 const pct = Math.min(100, (dim.score / 10) * 100);
                 const barColor = dim.score >= 8 ? "var(--green)" : dim.score >= 5 ? "var(--accent)" : "var(--red)";
                 return (

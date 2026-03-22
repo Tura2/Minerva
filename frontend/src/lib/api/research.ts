@@ -19,7 +19,7 @@ function toApiError(err: unknown): never {
 export async function executeResearch(req: ExecuteResearchRequest): Promise<ResearchTicket> {
   try {
     const res = await apiClient.post<ResearchTicket>("/research/execute", {
-      workflow_type: "technical-swing",
+      workflow_type: "technical-swing", // caller can override via req.workflow_type
       force: false,
       ...req,
     });

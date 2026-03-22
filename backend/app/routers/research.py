@@ -11,12 +11,18 @@ from app.services.workflows.swing_trade import (
     PreScreenFailed,
     WorkflowError,
 )
+from app.services.workflows.mean_reversion import execute_mean_reversion
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
-VALID_WORKFLOWS = {"technical-swing"}
+VALID_WORKFLOWS = {"technical-swing", "mean-reversion-bounce"}
 VALID_MARKETS = {"US", "TASE"}
+
+WORKFLOW_REGISTRY = {
+    "technical-swing": execute_swing_trade,
+    "mean-reversion-bounce": execute_mean_reversion,
+}
 
 
 # ── Request / Response models ─────────────────────────────────────────────────
@@ -90,9 +96,10 @@ async def execute_research(request: ResearchRequest):
         )
 
     db = get_db()
+    executor = WORKFLOW_REGISTRY[request.workflow_type]
 
     try:
-        ticket = await execute_swing_trade(
+        ticket = await executor(
             symbol=request.symbol.upper(),
             market=market,
             portfolio_size=request.portfolio_size,

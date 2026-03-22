@@ -265,3 +265,124 @@ def _is_tightening(depths: list) -> bool:
         if depths[i] > depths[i - 1] * 0.75:
             return False
     return True
+
+
+# ── Mean Reversion Indicators ──────────────────────────────────────────────────
+
+
+def compute_mean_reversion_indicators(
+    df: pd.DataFrame,
+    indicators: Dict[str, Any],
+) -> Dict[str, Any]:
+    """
+    Compute mean-reversion-specific indicators on top of base compute_indicators() output.
+
+    New signals:
+      - Bollinger Bands (20, 2): upper / middle / lower + %B position
+      - Capitulation Volume: down-day with volume >= 2× 50d average (seller exhaustion)
+      - Bullish RSI Divergence: lower price low but higher RSI low (momentum reversal)
+
+    Args:
+        df:         OHLC DataFrame (sorted ascending, lowercase columns)
+        indicators: Output from compute_indicators() — must include _close series
+
+    Returns:
+        Dict with MR indicator values.
+    """
+    close = indicators.get("_close")
+    avg_vol_50 = indicators.get("avg_vol_50")
+
+    if close is None or len(close) < 20:
+        return {}
+
+    # ── Bollinger Bands (20, 2) ───────────────────────────────────────────────
+    ma20 = close.rolling(20).mean()
+    bb_std = close.rolling(20).std(ddof=0)
+    bb_upper = ma20 + 2 * bb_std
+    bb_lower = ma20 - 2 * bb_std
+
+    latest_close = float(close.iloc[-1])
+    bb_upper_val = _last_valid(bb_upper)
+    bb_lower_val = _last_valid(bb_lower)
+
+    bb_pct_b: Optional[float] = None
+    distance_from_lower_bb_pct: Optional[float] = None
+    if bb_upper_val and bb_lower_val and (bb_upper_val - bb_lower_val) > 0:
+        bb_pct_b = round((latest_close - bb_lower_val) / (bb_upper_val - bb_lower_val), 4)
+        # Positive = above lower band; negative = pierced below
+        distance_from_lower_bb_pct = round(
+            (latest_close - bb_lower_val) / latest_close * 100, 2
+        )
+
+    # ── Capitulation Volume (last 10 sessions) ────────────────────────────────
+    # A heavy-volume down-day signals weak-hand selling exhaustion.
+    capitulation_detected = False
+    capitulation_vol_ratio = 0.0
+    capitulation_days_ago: Optional[int] = None
+
+    if avg_vol_50 and avg_vol_50 > 0 and len(df) >= 11:
+        seg = df.tail(11).copy()
+        seg = seg.assign(close_diff=seg["close"].diff()).iloc[1:]  # drop NaN first row
+        down_day = seg["close_diff"] < 0
+        heavy_vol = seg["volume"] > avg_vol_50 * 2.0
+        cap_mask = down_day & heavy_vol
+
+        if cap_mask.any():
+            capitulation_detected = True
+            cap_rows = seg[cap_mask]
+            capitulation_vol_ratio = round(
+                float((cap_rows["volume"] / avg_vol_50).max()), 2
+            )
+            # Sessions ago: 1 = last session, 10 = ten sessions back
+            last_cap_pos = cap_rows.index[-1]
+            all_positions = seg.index.tolist()
+            capitulation_days_ago = len(all_positions) - all_positions.index(last_cap_pos)
+
+    # ── Bullish RSI Divergence (last 30 sessions) ─────────────────────────────
+    # Lower price low paired with higher RSI low = hidden buying pressure.
+    rsi_divergence = False
+    rsi_trough_1: Optional[float] = None
+    rsi_trough_2: Optional[float] = None
+    price_low_1: Optional[float] = None
+    price_low_2: Optional[float] = None
+
+    rsi14 = _compute_rsi(close, period=14)
+    rsi_clean = rsi14.dropna()
+    if len(rsi_clean) >= 30:
+        seg_rsi = rsi14.tail(30).values
+        seg_price = close.tail(30).values
+        n = len(seg_rsi)
+        window = 3
+
+        troughs: list = []
+        for i in range(window, n - window):
+            if all(seg_rsi[i] <= seg_rsi[i - j] for j in range(1, window + 1)) and all(
+                seg_rsi[i] <= seg_rsi[i + j] for j in range(1, window + 1)
+            ):
+                troughs.append((i, float(seg_rsi[i]), float(seg_price[i])))
+
+        if len(troughs) >= 2:
+            t1, t2 = troughs[-2], troughs[-1]
+            rsi_trough_1 = round(t1[1], 2)
+            rsi_trough_2 = round(t2[1], 2)
+            price_low_1 = round(t1[2], 4)
+            price_low_2 = round(t2[2], 4)
+            # Bullish divergence: price made a lower low but RSI held higher
+            if price_low_2 < price_low_1 and rsi_trough_2 > rsi_trough_1:
+                rsi_divergence = True
+
+    return {
+        "bb_upper": bb_upper_val,
+        "bb_middle": _last_valid(ma20),
+        "bb_lower": bb_lower_val,
+        "bb_pct_b": bb_pct_b,
+        "distance_from_lower_bb_pct": distance_from_lower_bb_pct,
+        "capitulation_detected": capitulation_detected,
+        "capitulation_vol_ratio": capitulation_vol_ratio,
+        "capitulation_days_ago": capitulation_days_ago,
+        "rsi_divergence": rsi_divergence,
+        "rsi_trough_1": rsi_trough_1,
+        "rsi_trough_2": rsi_trough_2,
+        "price_low_1": price_low_1,
+        "price_low_2": price_low_2,
+    }
