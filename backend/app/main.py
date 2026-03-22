@@ -9,11 +9,11 @@ app = FastAPI(
     version="0.1.0",
 )
 
-# CORS Configuration
+# CORS — allow all origins (single-user app, no session cookies)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.cors_origins,
-    allow_credentials=True,
+    allow_origins=["*"],
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
