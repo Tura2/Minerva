@@ -9,6 +9,7 @@ import {
   ColorType,
   CandlestickData,
   UTCTimestamp,
+  MouseEventParams,
 } from "lightweight-charts";
 import { useEffect, useRef } from "react";
 import type { Candle, ExecutionLevels } from "@/lib/types";
@@ -94,8 +95,7 @@ export default function CandlestickChart({
     seriesRef.current = series;
 
     // Subscribe once; check mode via ref
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const clickHandler = (param: any) => {
+    const clickHandler = (param: MouseEventParams) => {
       if (drawingModeRef.current !== "hline") return;
       if (!param.point || !seriesRef.current) return;
       const price = seriesRef.current.coordinateToPrice(param.point.y);
