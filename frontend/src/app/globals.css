@@ -89,6 +89,21 @@ body {
   background: var(--text-dim);
 }
 
+/* ── Sidebar layout ──────────────────────────────────────────────── */
+/* Prevent body scroll bleed into sidebar on Firefox */
+body {
+  overflow-x: hidden;
+}
+
+/* ── Live dot pulse ──────────────────────────────────────────────── */
+@keyframes pulse-ring {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+.live-dot {
+  animation: pulse-ring 2s ease-in-out infinite;
+}
+
 /* ── Skeleton shimmer ────────────────────────────────────────────── */
 @keyframes shimmer {
   0% { background-position: -200% 0; }

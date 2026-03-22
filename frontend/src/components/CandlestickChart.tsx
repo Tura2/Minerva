@@ -18,6 +18,12 @@ interface Props {
   executionLevels?: ExecutionLevels | null;
   height?: number;
   isLoading?: boolean;
+  /** User-drawn horizontal price lines */
+  hlines?: number[];
+  /** Drawing mode — controls cursor & click behavior */
+  drawingMode?: "cursor" | "hline";
+  /** Called with the price when user clicks in hline mode */
+  onChartClick?: (price: number) => void;
 }
 
 export default function CandlestickChart({
@@ -25,11 +31,21 @@ export default function CandlestickChart({
   executionLevels,
   height = 420,
   isLoading = false,
+  hlines = [],
+  drawingMode = "cursor",
+  onChartClick,
 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const seriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
   const priceLinesRef = useRef<IPriceLine[]>([]);
+  const drawingLinesRef = useRef<IPriceLine[]>([]);
+
+  // Stable refs so the click handler doesn't need to re-subscribe
+  const drawingModeRef = useRef(drawingMode);
+  drawingModeRef.current = drawingMode;
+  const onChartClickRef = useRef(onChartClick);
+  onChartClickRef.current = onChartClick;
 
   // Mount chart once
   useEffect(() => {
@@ -77,6 +93,16 @@ export default function CandlestickChart({
     chartRef.current = chart;
     seriesRef.current = series;
 
+    // Subscribe once; check mode via ref
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const clickHandler = (param: any) => {
+      if (drawingModeRef.current !== "hline") return;
+      if (!param.point || !seriesRef.current) return;
+      const price = seriesRef.current.coordinateToPrice(param.point.y);
+      if (price !== null) onChartClickRef.current?.(price);
+    };
+    chart.subscribeClick(clickHandler);
+
     const observer = new ResizeObserver(() => {
       if (containerRef.current && chartRef.current) {
         chartRef.current.resize(containerRef.current.clientWidth, height);
@@ -86,10 +112,12 @@ export default function CandlestickChart({
 
     return () => {
       observer.disconnect();
+      chart.unsubscribeClick(clickHandler);
       chart.remove();
       chartRef.current = null;
       seriesRef.current = null;
     };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [height]);
 
   // Update candle data
@@ -114,56 +142,47 @@ export default function CandlestickChart({
   useEffect(() => {
     if (!seriesRef.current) return;
 
-    // Remove existing price lines
     priceLinesRef.current.forEach((pl) => seriesRef.current?.removePriceLine(pl));
     priceLinesRef.current = [];
 
     if (!executionLevels) return;
 
-    const lines: Array<{ price: number | null; color: string; style: LineStyle; title: string }> =
-      [
-        {
-          price: executionLevels.entry,
-          color: "#3b82f6",
-          style: LineStyle.Dashed,
-          title: "Entry",
-        },
-        {
-          price: executionLevels.stop,
-          color: "#ef4444",
-          style: LineStyle.Solid,
-          title: "Stop",
-        },
-        {
-          price: executionLevels.target,
-          color: "#22c55e",
-          style: LineStyle.Solid,
-          title: "Target",
-        },
-      ];
+    const lines: Array<{ price: number | null; color: string; style: LineStyle; title: string }> = [
+      { price: executionLevels.entry, color: "#3b82f6", style: LineStyle.Dashed, title: "Entry" },
+      { price: executionLevels.stop, color: "#ef4444", style: LineStyle.Solid, title: "Stop" },
+      { price: executionLevels.target, color: "#22c55e", style: LineStyle.Solid, title: "Target" },
+    ];
 
     lines.forEach(({ price, color, style, title }) => {
       if (price == null || !seriesRef.current) return;
-      const pl = seriesRef.current.createPriceLine({
-        price,
-        color,
-        lineWidth: 1,
-        lineStyle: style,
-        axisLabelVisible: true,
-        title,
-      });
+      const pl = seriesRef.current.createPriceLine({ price, color, lineWidth: 1, lineStyle: style, axisLabelVisible: true, title });
       priceLinesRef.current.push(pl);
     });
   }, [executionLevels]);
 
+  // Update user-drawn horizontal lines
+  useEffect(() => {
+    if (!seriesRef.current) return;
+
+    drawingLinesRef.current.forEach((pl) => seriesRef.current?.removePriceLine(pl));
+    drawingLinesRef.current = [];
+
+    hlines.forEach((price) => {
+      if (!seriesRef.current) return;
+      const pl = seriesRef.current.createPriceLine({
+        price,
+        color: "#f59e0b",
+        lineWidth: 1,
+        lineStyle: LineStyle.Dashed,
+        axisLabelVisible: true,
+        title: "─",
+      });
+      drawingLinesRef.current.push(pl);
+    });
+  }, [hlines]);
+
   if (isLoading) {
-    return (
-      <div
-        className="skeleton"
-        style={{ height, borderRadius: "4px" }}
-        aria-label="Loading chart..."
-      />
-    );
+    return <div className="skeleton" style={{ height, borderRadius: "4px" }} aria-label="Loading chart..." />;
   }
 
   return (
@@ -173,6 +192,8 @@ export default function CandlestickChart({
         borderRadius: "4px",
         overflow: "hidden",
         background: "#18181b",
+        cursor: drawingMode === "hline" ? "crosshair" : "default",
+        position: "relative",
       }}
     >
       <div ref={containerRef} style={{ height }} />

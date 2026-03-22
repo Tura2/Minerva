@@ -5,6 +5,44 @@ import { useEffect, useState } from "react";
 import { listTickets } from "@/lib/api/research";
 import type { Market, ResearchTicket, TicketStatus } from "@/lib/types";
 
+// ── Symbol icon ────────────────────────────────────────────────────────────────
+
+const SYMBOL_COLORS = [
+  "#3b82f6", "#8b5cf6", "#57c1d5", "#10b981", "#06b6d4",
+  "#6366f1", "#14b8a6", "#0ea5e9", "#22d3ee", "#a78bfa",
+];
+
+function symbolColor(symbol: string): string {
+  let hash = 0;
+  for (let i = 0; i < symbol.length; i++) hash = symbol.charCodeAt(i) + ((hash << 5) - hash);
+  return SYMBOL_COLORS[Math.abs(hash) % SYMBOL_COLORS.length];
+}
+
+function SymbolIcon({ symbol }: { symbol: string }) {
+  const [failed, setFailed] = useState(false);
+  if (failed) {
+    return (
+      <span
+        className="inline-flex items-center justify-center shrink-0 rounded-full font-bold"
+        style={{ width: 22, height: 22, background: symbolColor(symbol), color: "#fff", fontSize: 9 }}
+      >
+        {symbol.slice(0, 2).toUpperCase()}
+      </span>
+    );
+  }
+  return (
+    // eslint-disable-next-line @next/next/no-img-element
+    <img
+      src={`https://cdn.jsdelivr.net/gh/nvstly/icons@main/ticker_icons/${symbol}.png`}
+      alt={symbol}
+      width={22}
+      height={22}
+      className="rounded-full shrink-0 object-cover"
+      onError={() => setFailed(true)}
+    />
+  );
+}
+
 function StatusBadge({ status }: { status: TicketStatus }) {
   const styles: Record<TicketStatus, { bg: string; color: string }> = {
     pending: { bg: "var(--accent-dim)", color: "var(--accent)" },
@@ -136,7 +174,7 @@ export default function ResearchPage() {
         <div
           className="grid px-4 py-2 text-xs font-mono uppercase tracking-widest"
           style={{
-            gridTemplateColumns: "80px 70px 90px 90px 90px 60px 70px 80px 100px",
+            gridTemplateColumns: "110px 70px 90px 90px 90px 60px 70px 80px 100px",
             borderBottom: "1px solid var(--border)",
             color: "var(--text-dim)",
           }}
@@ -181,17 +219,20 @@ export default function ResearchPage() {
                 href={`/research/${t.id}`}
                 className="grid items-center px-4 py-3 hover:bg-[var(--surface-2)] transition-colors"
                 style={{
-                  gridTemplateColumns: "80px 70px 90px 90px 90px 60px 70px 80px 100px",
+                  gridTemplateColumns: "110px 70px 90px 90px 90px 60px 70px 80px 100px",
                   borderBottom: "1px solid var(--border-subtle)",
                   textDecoration: "none",
                 }}
               >
-                <span
-                  className="font-mono text-sm font-semibold"
-                  style={{ color: "var(--text)" }}
-                >
-                  {t.symbol}
-                </span>
+                <div className="flex items-center gap-2 min-w-0">
+                  <SymbolIcon symbol={t.symbol} />
+                  <span
+                    className="font-mono text-sm font-semibold truncate"
+                    style={{ color: "var(--text)" }}
+                  >
+                    {t.symbol}
+                  </span>
+                </div>
 
                 <span
                   className="px-1.5 py-0.5 text-xs font-mono rounded w-fit"

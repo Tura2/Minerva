@@ -352,7 +352,7 @@ HARD RULES (violations will be rejected):
 1. entry_price ≤ current price (this is a MEAN REVERSION trade — you buy the dip, not the breakout)
    Exception: entry_type="buy_stop" allows entry slightly above current price for confirmation
 2. stop_loss < entry_price (always)
-3. entry_price − stop_loss >= 0.8 × ATR14 = {currency_sym}{atr_stop_min:.4f if atr_stop_min else 'n/a'}
+3. entry_price − stop_loss >= 0.8 × ATR14 = {currency_sym}{f'{atr_stop_min:.4f}' if atr_stop_min else 'n/a'}
 4. target (T2) gives R:R >= 1.5:1
 5. scale_out share_pct sum = 100
 6. scenarios probabilities sum = 1.0
@@ -360,7 +360,7 @@ HARD RULES (violations will be rejected):
 8. bullish_probability is a computed decimal (do NOT use 0.65 as a default)
 9. All prices in {currency}
 10. No margin: position fits within {currency_sym}{portfolio_size:,.0f}
-11. T1 price must be within ±3% of MA20 = {currency_sym}{ma20:.4f if ma20 else 'n/a'}
+11. T1 price must be within ±3% of MA20 = {currency_sym}{f'{ma20:.4f}' if ma20 else 'n/a'}
 """
     return prompt.strip()
 
@@ -430,11 +430,13 @@ def _format_breadth_mr(breadth: Dict[str, Any], market: str) -> str:
         f"Score  : {score:.1f}/100" if score else "Score  : n/a",
     ]
 
-    # Sector breakdown if available
-    sectors = breadth.get("sectors", {})
+    # Sector breakdown if available (list of {"name": str, "ratio": float})
+    sectors = breadth.get("sectors") or []
     if sectors:
         lines.append("Sectors:")
-        for sector, val in list(sectors.items())[:5]:
-            lines.append(f"  {sector}: {val:.0f}%")
+        for s in sectors[:5]:
+            name = s.get("name", "?")
+            val = s.get("ratio")
+            lines.append(f"  {name}: {val:.0f}%" if val is not None else f"  {name}: n/a")
 
     return "\n".join(lines)

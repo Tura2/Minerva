@@ -51,11 +51,22 @@ function TicketRow({ ticket }: { ticket: ResearchTicket }) {
 
   const prob = Math.round(ticket.bullish_probability * 100);
 
+  const borderColor =
+    ticket.status === "approved"
+      ? "var(--green)"
+      : ticket.status === "rejected"
+        ? "var(--red)"
+        : "var(--accent)";
+
   return (
     <Link
       href={`/research/${ticket.id}`}
-      className="flex items-center gap-4 px-4 py-3 transition-colors hover:bg-[var(--surface-2)]"
-      style={{ borderBottom: "1px solid var(--border-subtle)" }}
+      className="flex items-center gap-4 px-4 py-3 transition-all hover:bg-[var(--surface-2)]"
+      style={{
+        borderBottom: "1px solid var(--border-subtle)",
+        borderLeft: `2px solid ${borderColor}`,
+        textDecoration: "none",
+      }}
     >
       <span className="font-mono text-sm font-semibold w-20" style={{ color: "var(--text)" }}>
         {ticket.symbol}
