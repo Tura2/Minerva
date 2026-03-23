@@ -92,6 +92,7 @@ reporter  →  backtest_trades.csv
 ```
 cash = 20,000 ILS
 open_positions = []
+settlement_queue = []   # list of (amount_ils: float, settle_on: date)
 ```
 
 ### Entry logic
