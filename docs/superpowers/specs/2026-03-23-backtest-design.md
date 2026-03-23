@@ -172,7 +172,7 @@ On stop:     cash += stop_loss × shares_remaining
 **Cache key:** `"{symbol}_{YYYY-MM-DD}_{workflow_type}"`
 Example: `"OPCE_2025-06-15_technical-swing"`
 
-**Cached fields:**
+**Cached fields (raw LLM output only — no position_size, no RS rank):**
 ```json
 {
   "entry_price": 412.0,
@@ -181,14 +181,14 @@ Example: `"OPCE_2025-06-15_technical-swing"`
   "t1": 445.0,
   "t2": 480.0,
   "t3": 520.0,
-  "position_size": 48,
   "verdict": "Strong Buy",
   "setup_score": 42,
-  "rs_rank_pct": 87.3,
   "entry_rationale": "...",
   "cached_at": "2026-03-23T10:00:00Z"
 }
 ```
+
+`position_size` is **not cached** — it is re-computed each time using current portfolio equity at day D so that re-runs with different capital work correctly. `rs_rank_pct` is **not cached** — it is always `null` in backtest output (RS is skipped to avoid lookahead bias).
 
 On cache hit: skip OpenRouter call entirely.
 On cache miss: call OpenRouter → validate → store → use.
@@ -298,7 +298,38 @@ python -m scripts.backtest
 | Entry timing | D+1 (next day after signal) | Realistic — signal fires EOD, trade next morning |
 | Breakout entry | Only if D+1 high ≥ entry_price | No fill if price gaps past without reaching level |
 | Conflict resolution | Stop wins over target (same day) | Conservative assumption |
-| Dual workflow on same symbol | Prefer technical-swing | Avoids double position |
-| Point-in-time isolation | `df[:D]` slice | No lookahead bias |
-| Production code changes | Zero | Backtest calls existing services directly |
-| Output format | CSV + JSON | Simple, no infra, openable in Excel |
+| Dual workflow on same symbol | Prefer technical-swing | Avoids double position; MR suppression is intentional and logged in output |
+| Point-in-time isolation | `df[df.index.normalize() <= pd.Timestamp(D)]` | Handles tz-aware yfinance timestamps (Asia/Jerusalem) safely |
+| Trading calendar | **Intersection** of all loaded symbols' date indexes | Robust: only days where all symbols have data are replayed; single-symbol gaps cannot silently drop replay days |
+| RS rank in backtest | Skipped (null) | Avoids lookahead bias; all backtest trades have `rs_rank_pct = null` |
+| Market breadth | Neutral stub for all replay days | TASE returns neutral stub in production; eliminates live-data lookahead |
+| Position sizing | Re-computed per trade from current equity at day D | Cache stores raw LLM fields only; sizing always reflects live portfolio state |
+| LLM cache key date | Signal day D (not entry day D+1) | Deduplicates setup analysis, not the execution attempt |
+| LLM cache contents | entry_price, entry_type, stop_loss, t1/t2/t3, verdict, setup_score, entry_rationale | Excludes position_size and rs_rank_pct; re-runs with different capital cost nothing |
+| portfolio_size in LLM prompt | Fixed 20,000 ILS (starting capital) — cosmetic only | LLM rationale text uses this value; actual position sizing is re-computed independently from current equity |
+| Share tranche formula | T1 = `n // 3`; T2 = `n // 3`; T3 = `n - (n // 3) * 2` | Explicit formula; T3 absorbs rounding; no share count drift across hundreds of trades |
+| Trailing stop state update timing | End-of-day only; same-day T1+stop uses pre-T1 stop level | Cannot infer intraday order from daily OHLC; trailing state never activates within the same day T1 fires |
+| Trailing stop price basis | Actual fill price (D+1 open for `current`; ticket's `entry_price` for `breakout`) | Not the LLM-returned `entry_price` field, which can differ from actual fill for current-entry trades |
+| Returned cash (T+2) | Each exit's proceeds available D+2 from that exit day | TASE T+2 settlement; no intraday reinvestment |
+| Mark-to-market open positions | Day D closing price | Used for `open_positions_value` in daily equity curve; cost basis used for P&L |
+| Max drawdown definition | Maximum peak-to-trough % decline of daily total equity series (cash + open_positions_value) | Standard definition — not single-trade or consecutive-loss |
+| Production code changes | Zero | Backtest calls existing services directly with no modifications |
+| Output format | CSV + JSON in `output/` subfolder | Simple, no infra, openable in Excel |
+
+---
+
+## 9. Edge Case Handling
+
+| Edge case | Resolution |
+|---|---|
+| Symbol has < 20 bars at slice day D | `compute_indicators` returns `{}`; pre-screen returns FAIL; skip symbol this day; log warning |
+| Symbol has < 200 bars (MA200 = None) | Pre-screen `long_term_trend` returns `False`; symbol **not excluded** — re-evaluated each day; will qualify once it accumulates enough history |
+| T1/T2/T3 null or missing from LLM | Skip trade; log as `skipped: invalid_targets` |
+| `entry_price` null or ≤ 0 | Skip trade; log as `skipped: invalid_entry_price` |
+| Breakout not filled (D+1 high < entry_price) and D+1 low < stop | No entry ever opened — no stop-out; signal treated as never filled |
+| T1 and T2 (or T1/T2/T3) all hit on same day | All eligible tranches exit same day at respective prices (T1 first, T2 second, T3 last) |
+| T1 hit and stop hit on same day | T1 tranche exits at T1; remaining shares exit at pre-T1 stop (trailing state not yet active) |
+| Watchlist | Frozen at backtest start; never re-queried mid-loop |
+| Symbol fetch failure (yfinance error) | Skip symbol for entire backtest; log error; continue with remaining symbols |
+| < 5 symbols loaded from Supabase | Fail fast with clear error before replay loop starts |
+| `--dry-run` flag | Load data + run pre-screen for all symbols all days; no LLM calls, no portfolio changes; write `output/dry_run_signals.csv` (date, symbol, workflow, pre_screen_passed) |
