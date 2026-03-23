@@ -198,7 +198,7 @@ def run_backtest(
             indicators = compute_indicators(df_slice)
             if not indicators:
                 continue
-            mr_indicators = compute_mean_reversion_indicators(df_slice)
+            mr_indicators = compute_mean_reversion_indicators(df_slice, indicators)
             signals = detect_signals(sym, market, df_slice, indicators, mr_indicators, open_symbols)
 
             for sig in signals:
@@ -328,7 +328,7 @@ def run_backtest(
             writer = csv.DictWriter(f, fieldnames=["date", "symbol", "workflow", "pre_screen_passed"])
             writer.writeheader()
             writer.writerows(dry_run_signals)
-        logger.info("Dry-run complete — %d signals found → %s", len(dry_run_signals), out)
+        logger.info("Dry-run complete -- %d signals found -> %s", len(dry_run_signals), out)
         return {"dry_run": True, "signals_found": len(dry_run_signals)}
 
     summary = _compute_summary(

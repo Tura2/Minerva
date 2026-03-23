@@ -82,7 +82,7 @@ def main() -> None:
     trading_calendar = [d for d in build_trading_calendar(ohlc_data) if start <= d <= end]
 
     logger.info(
-        "Running backtest: %s → %s (%d trading days, %d symbols, %.0f ILS capital)",
+        "Running backtest: %s -> %s (%d trading days, %d symbols, %.0f ILS capital)",
         start, end, len(trading_calendar), len(ohlc_data), args.capital,
     )
 

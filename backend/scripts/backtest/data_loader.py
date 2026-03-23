@@ -34,6 +34,9 @@ def fetch_ohlc(symbol: str, market: str, period: str = "2y") -> pd.DataFrame:
     df = yf.download(ticker, period=period, auto_adjust=True, progress=False)
     if df.empty:
         raise ValueError(f"No data returned for {ticker}")
+    # yfinance >= 0.2.x returns MultiIndex columns for single tickers — flatten to level 0
+    if isinstance(df.columns, pd.MultiIndex):
+        df.columns = df.columns.get_level_values(0)
     return normalize_ohlc(df, market)
 
 
