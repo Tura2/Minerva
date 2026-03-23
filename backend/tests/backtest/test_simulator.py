@@ -124,6 +124,7 @@ def test_dry_run_produces_signal_csv(tmp_path):
 
 def test_signal_with_cached_ticket_enters_position(tmp_path):
     """A cached ticket should create a position without LLM call."""
+    import csv
     cache = LLMCache(cache_file=tmp_path / "cache.json")
     cache.store("SYM", DAYS[0], "technical-swing", {
         "entry_price": 100.0, "entry_type": "current",
@@ -134,15 +135,20 @@ def test_signal_with_cached_ticket_enters_position(tmp_path):
         mock_detect.return_value = [{"workflow": "technical-swing", "pre_screen_result": MagicMock()}]
         with patch("scripts.backtest.simulator.compute_indicators", return_value={"price": 100}):
             with patch("scripts.backtest.simulator.compute_mean_reversion_indicators", return_value={}):
-                with patch("scripts.backtest.simulator.OpenRouterClient") as mock_client_cls:
-                    result = run_backtest(
-                        ohlc_data=OHLC_DATA, symbol_meta=META,
-                        trading_calendar=DAYS[:4], cache=cache,
-                        output_dir=tmp_path, dry_run=False,
-                    )
+                with patch("scripts.backtest.simulator.compute_position_size", return_value={"shares": 5}):
+                    with patch("scripts.backtest.simulator.OpenRouterClient") as mock_client_cls:
+                        result = run_backtest(
+                            ohlc_data=OHLC_DATA, symbol_meta=META,
+                            trading_calendar=DAYS[:5], cache=cache,
+                            output_dir=tmp_path, dry_run=False,
+                        )
     # LLM should NOT have been called (cache hit + open_symbols guard on subsequent days)
     mock_client_cls.return_value.research.assert_not_called()
     assert (tmp_path / "backtest_summary.json").exists()
+    # Verify a position was actually entered (entry resolution fires on D+1)
+    with open(tmp_path / "backtest_daily_portfolio.csv") as f:
+        rows = list(csv.DictReader(f))
+    assert any(int(row["num_entries"]) > 0 for row in rows), "Expected at least one position entry"
 
 
 def test_invalid_ticket_skips_entry(tmp_path):

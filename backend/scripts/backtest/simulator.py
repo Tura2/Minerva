@@ -2,10 +2,23 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Set
 
+import pandas as pd
+
+from app.services.indicators import compute_indicators, compute_mean_reversion_indicators
+from app.services.openrouter_client import OpenRouterClient
+from app.services.position_sizer_service import compute_position_size
 from app.services.pre_screen import pre_screen, pre_screen_mean_reversion
+from app.services.prompts import build_research_prompt
+from app.services.prompts_mean_reversion import build_mr_research_prompt
+from scripts.backtest.data_loader import slice_df
+from scripts.backtest.llm_cache import LLMCache
+from scripts.backtest.portfolio import Portfolio, Position
+from scripts.backtest.reporter import write_trades_csv, write_daily_csv, write_summary_json
 
 logger = logging.getLogger(__name__)
 
@@ -60,22 +73,6 @@ def detect_signals(
 
 
 # ── Full backtest loop ────────────────────────────────────────────────────────
-
-import asyncio
-from datetime import timedelta  # noqa: F401 — available for callers
-from pathlib import Path
-
-import pandas as pd
-
-from app.services.indicators import compute_indicators, compute_mean_reversion_indicators
-from app.services.openrouter_client import OpenRouterClient
-from app.services.position_sizer_service import compute_position_size
-from app.services.prompts import build_research_prompt
-from app.services.prompts_mean_reversion import build_mr_research_prompt
-from scripts.backtest.data_loader import slice_df
-from scripts.backtest.llm_cache import LLMCache
-from scripts.backtest.portfolio import Portfolio, Position
-from scripts.backtest.reporter import write_trades_csv, write_daily_csv, write_summary_json
 
 _NEUTRAL_BREADTH = {
     "zone": "neutral", "uptrend_pct": 50.0,
