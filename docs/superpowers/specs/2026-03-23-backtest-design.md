@@ -150,18 +150,27 @@ Stop hit (day_low ≤ stop_loss):
     sell shares_remaining at stop_loss
     close position (partial loss if T1/T2 already hit)
 
-Conflict (stop and target same day):
-    stop fills first (conservative assumption)
+Conflict (T2 or T3 and stop hit same day):
+    stop fills first — entire remaining position exits at stop_loss
+    (T2/T3 price never reached in settlement sense)
+
+Conflict (T1 and stop hit same day):
+    → governed by Section 9 edge case rule:
+      T1 tranche (n // 3 shares) exits at T1; remaining exits at pre-T1 stop
 ```
 
 ### Cash accounting
 ```
-On entry:    cash -= entry_price × shares_total
-On T1 exit:  cash += t1 × (shares_total // 3)
-On T2 exit:  cash += t2 × (shares_total // 3)
-On T3 exit:  cash += t3 × shares_remaining
-On stop:     cash += stop_loss × shares_remaining
+On entry:    cash -= entry_price × shares_total            (immediate)
+On T1 exit:  settlement_queue += (t1 × (shares_total // 3), settle_on=D+2)
+On T2 exit:  settlement_queue += (t2 × (shares_total // 3), settle_on=D+2)
+On T3 exit:  settlement_queue += (t3 × shares_remaining,    settle_on=D+2)
+On stop:     settlement_queue += (stop_loss × shares_remaining, settle_on=D+2)
+
+# Each morning: cash += all settlements due on day D (TASE T+2)
+# available_cash = cash + sum(settlements due ≤ D)
 ```
+Note: entry debit is immediate (order placed); exit credits settle T+2 per TASE rules.
 
 ---
 
@@ -300,7 +309,7 @@ python -m scripts.backtest
 | Conflict resolution | Stop wins over target (same day) | Conservative assumption |
 | Dual workflow on same symbol | Prefer technical-swing | Avoids double position; MR suppression is intentional and logged in output |
 | Point-in-time isolation | `df[df.index.normalize() <= pd.Timestamp(D)]` | Handles tz-aware yfinance timestamps (Asia/Jerusalem) safely |
-| Trading calendar | **Intersection** of all loaded symbols' date indexes | Robust: only days where all symbols have data are replayed; single-symbol gaps cannot silently drop replay days |
+| Trading calendar | **Union** of all loaded symbols' date indexes | Every day any symbol has data is a candidate replay day; each symbol is skipped individually on days it has no bar (e.g., recent IPO, data gap); no risk of silently truncating the simulation window if one symbol has a shorter history |
 | RS rank in backtest | Skipped (null) | Avoids lookahead bias; all backtest trades have `rs_rank_pct = null` |
 | Market breadth | Neutral stub for all replay days | TASE returns neutral stub in production; eliminates live-data lookahead |
 | Position sizing | Re-computed per trade from current equity at day D | Cache stores raw LLM fields only; sizing always reflects live portfolio state |
