@@ -36,7 +36,7 @@ class Position:
     setup_score: int = 0
     entry_rationale: str = ""
     # accumulated exit events across all days (needed for multi-day P&L summarization)
-    exit_events: list = field(default_factory=list)
+    exit_events: List[Dict[str, Any]] = field(default_factory=list)
 
 
 @dataclass
@@ -53,10 +53,13 @@ class Portfolio:
 
     def settle_pending(self, today: date) -> None:
         """Credit all settlements due on or before today."""
-        due = [(amt, d) for amt, d in self.settlement_queue if d <= today]
-        for item in due:
-            self.cash += item[0]
-            self.settlement_queue.remove(item)
+        remaining = []
+        for amt, d in self.settlement_queue:
+            if d <= today:
+                self.cash += amt
+            else:
+                remaining.append((amt, d))
+        self.settlement_queue = remaining
 
     def _queue_settlement(self, amount: float, exit_date: date) -> None:
         """Queue an exit credit for T+2 settlement."""
