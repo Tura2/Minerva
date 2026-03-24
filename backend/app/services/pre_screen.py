@@ -10,7 +10,7 @@ If FAIL, LLM research is skipped — saving tokens on poor setups.
 """
 
 from dataclasses import dataclass, field
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 import logging
 
 from app.services.indicators import detect_vcp_contractions
@@ -363,5 +363,138 @@ def pre_screen_mean_reversion(
         checks=checks,
         reasons=reasons,
         vcp=vcp,
+        summary=summary,
+    )
+
+
+# ── Support-Bounce Gate ────────────────────────────────────────────────────────
+
+# Support-proximity threshold: price must be within this % of nearest support
+SUPPORT_PROXIMITY_PCT = {"US": 4.0, "TASE": 5.0}   # TASE more volatile
+MIN_RR_RATIO = 2.0
+RSI_MAX_SB = 65.0    # Not overbought
+RSI_MIN_SB = 20.0    # Not in freefall
+VOL_DRY_UP_THRESHOLD = 0.90  # 10d avg / 50d avg < 90%
+
+
+def pre_screen_support_bounce(
+    symbol: str,
+    market: str,
+    df,  # pd.DataFrame
+    indicators: Dict[str, Any],
+    sr_data: Dict[str, Any],
+) -> PreScreenResult:
+    """
+    Deterministic gate for support-bounce setups. Seven checks:
+      1. trend_intact       — price above MA200
+      2. near_support       — nearest support within SUPPORT_PROXIMITY_PCT
+      3. not_broken         — price has not closed below support zone low
+      4. rsi_pullback       — RSI between RSI_MIN_SB and RSI_MAX_SB
+      5. volume_compression — vol_dry_up_ratio < VOL_DRY_UP_THRESHOLD (if available)
+      6. clear_target       — nearest resistance exists above price
+      7. rr_adequate        — R:R ratio >= MIN_RR_RATIO
+
+    Args:
+        symbol:     Ticker (without .TA)
+        market:     "US" or "TASE"
+        df:         Daily OHLC DataFrame
+        indicators: Output of compute_indicators()
+        sr_data:    Output of detect_support_resistance_zones()
+    """
+    checks: Dict[str, bool] = {}
+    reasons: List[str] = []
+
+    price = float(indicators.get("price") or 0)
+    ma200 = indicators.get("ma200")
+    rsi14 = indicators.get("rsi14")
+    vol_dry_up_ratio = indicators.get("vol_dry_up_ratio")
+    nearest_support = sr_data.get("nearest_support")
+    nearest_resistance = sr_data.get("nearest_resistance")
+    rr_ratio = sr_data.get("rr_ratio")
+    proximity_threshold = SUPPORT_PROXIMITY_PCT.get(market.upper(), 5.0)
+
+    # 1. Trend intact: price > MA200
+    checks["trend_intact"] = bool(ma200 and price > float(ma200))
+    if not checks["trend_intact"]:
+        ma200_str = f"{ma200:.2f}" if ma200 else "N/A"
+        reasons.append(f"Price {price:.2f} below MA200 {ma200_str} — uptrend not intact")
+
+    # 2. Near support
+    if not nearest_support:
+        checks["near_support"] = False
+        reasons.append("No key support level detected below current price")
+    else:
+        distance_pct = nearest_support.get("distance_pct", 999)
+        checks["near_support"] = distance_pct <= proximity_threshold
+        if not checks["near_support"]:
+            reasons.append(
+                f"Nearest support {nearest_support['price']:.2f} is {distance_pct:.1f}% away "
+                f"(max {proximity_threshold}%)"
+            )
+
+    # 3. Not broken: price still above support zone low
+    if nearest_support:
+        support_low = float(nearest_support.get("low", nearest_support["price"]) or nearest_support["price"])
+        last_close = float(df["close"].iloc[-1]) if df is not None and not df.empty else price
+        checks["not_broken"] = last_close > support_low
+        if not checks["not_broken"]:
+            reasons.append(
+                f"Price {last_close:.2f} has closed below support zone low {support_low:.2f} — support broken"
+            )
+    else:
+        checks["not_broken"] = False
+
+    # 4. RSI pullback
+    if rsi14 is None:
+        checks["rsi_pullback"] = True  # non-blocking if unavailable
+    else:
+        rsi_val = float(rsi14)
+        checks["rsi_pullback"] = RSI_MIN_SB <= rsi_val <= RSI_MAX_SB
+        if not checks["rsi_pullback"]:
+            if rsi_val > RSI_MAX_SB:
+                reasons.append(f"RSI {rsi_val:.1f} is overbought (>{RSI_MAX_SB}) — not a pullback setup")
+            else:
+                reasons.append(f"RSI {rsi_val:.1f} is in freefall (<{RSI_MIN_SB}) — wait for stabilization")
+
+    # 5. Volume compression (non-blocking — not all stocks show clear dry-up)
+    if vol_dry_up_ratio is not None:
+        checks["volume_compression"] = float(vol_dry_up_ratio) < VOL_DRY_UP_THRESHOLD
+        if not checks["volume_compression"]:
+            reasons.append(
+                f"Volume not compressing: 10d/50d ratio {vol_dry_up_ratio:.2f} >= {VOL_DRY_UP_THRESHOLD} "
+                f"(selling pressure still present)"
+            )
+    else:
+        checks["volume_compression"] = True  # can't compute — allow through
+
+    # 6. Clear target
+    checks["clear_target"] = nearest_resistance is not None
+    if not checks["clear_target"]:
+        reasons.append("No clear resistance level found above price — cannot define target")
+
+    # 7. R:R ratio
+    if rr_ratio is None:
+        checks["rr_adequate"] = False
+        reasons.append("Cannot compute R:R — missing support or resistance level")
+    else:
+        checks["rr_adequate"] = float(rr_ratio) >= MIN_RR_RATIO
+        if not checks["rr_adequate"]:
+            reasons.append(
+                f"R:R ratio {rr_ratio:.2f} below minimum {MIN_RR_RATIO:.1f} — risk not justified"
+            )
+
+    passed = all(checks.values())
+    check_count = sum(checks.values())
+    summary = (
+        f"Support-bounce gate: {'PASS' if passed else 'FAIL'} "
+        f"({check_count}/{len(checks)} checks passed)"
+    )
+    logger.info(f"[pre_screen_sb] {symbol}/{market}: {summary}")
+
+    return PreScreenResult(
+        passed=passed,
+        checks=checks,
+        reasons=reasons,
+        vcp={},  # not applicable for support-bounce
         summary=summary,
     )
