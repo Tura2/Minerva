@@ -14,6 +14,8 @@ import type {
   SynthesizedScore,
   TicketStatus,
 } from "@/lib/types";
+import { PlaybookCard } from "@/components/PlaybookCard";
+import type { SupportBouncePlaybook } from "@/lib/types";
 
 // Dynamically import CandlestickChart to avoid SSR issues with DOM APIs
 const CandlestickChart = dynamic(() => import("@/components/CandlestickChart"), {
@@ -153,6 +155,12 @@ const DIMENSION_LABELS: Record<string, string> = {
   exhaustion_signals:"Exhaustion",
   support_confluence:"Support",
   rs_quality:        "RS Quality",
+  // support-bounce
+  support_zone_quality: "Support Zone",
+  trend_integrity:      "Trend Integrity",
+  momentum_setup:       "Momentum Setup",
+  rr_quality:           "R:R Quality",
+  timing_readiness:     "Timing",
 };
 
 function SynthesizedScoreTable({ score }: { score: SynthesizedScore }) {
@@ -540,6 +548,67 @@ export default function TicketClient({ id }: { id: string }) {
       ))}
     </div>
   );
+
+  // ── Support-Bounce: render playbook layout ───────────────────────────────────
+  if (ticket.workflow_type === "support-bounce" && ticket.metadata) {
+    const playbook = ticket.metadata as unknown as SupportBouncePlaybook;
+    return (
+      <div
+        className="min-h-screen"
+        style={{ background: "var(--background)", color: "var(--text)" }}
+      >
+        {/* Header — same visual language as existing page */}
+        <div
+          className="px-6 py-4 flex items-center justify-between"
+          style={{ borderBottom: "1px solid var(--border)" }}
+        >
+          <div className="flex items-center gap-3">
+            <Link href="/research" className="text-sm font-mono" style={{ color: "var(--text-dim)" }}>
+              ← Research
+            </Link>
+            <span style={{ color: "var(--border)" }}>|</span>
+            <span className="font-mono text-lg font-bold">{ticket.symbol}</span>
+            <span
+              className="text-xs font-mono px-2 py-0.5 rounded uppercase"
+              style={{ background: "var(--surface-2)", color: "var(--text-dim)" }}
+            >
+              {ticket.market}
+            </span>
+            <span
+              className="text-xs font-mono px-2 py-0.5 rounded"
+              style={{ background: "var(--accent-dim)", color: "var(--accent)" }}
+            >
+              Support Bounce
+            </span>
+          </div>
+          <div className="flex items-center gap-3">
+            <StatusBadge status={ticket.status as TicketStatus} />
+            <VerdictBadge verdict={ticket.verdict} />
+            {ticket.setup_score != null && <SetupScoreBadge score={ticket.setup_score} />}
+          </div>
+        </div>
+
+        {/* Chart */}
+        <div className="px-6 py-4" style={{ borderBottom: "1px solid var(--border)" }}>
+          {candles.length > 0 ? (
+            <CandlestickChart
+              candles={candles}
+              executionLevels={executionLevels}
+              height={420}
+            />
+          ) : (
+            <div className="skeleton" style={{ height: 420 }} />
+          )}
+        </div>
+
+        {/* Playbook */}
+        <div className="px-6 py-6 max-w-4xl">
+          <PlaybookCard ticket={ticket} playbook={playbook} />
+        </div>
+      </div>
+    );
+  }
+  // ── End support-bounce branch ─────────────────────────────────────────────────
 
   return (
     <div className="space-y-6">

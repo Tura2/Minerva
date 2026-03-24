@@ -15,6 +15,11 @@ const WORKFLOW_META: Record<WorkflowType, { label: string; description: string; 
     description: "Oversold bounce — buy the dip in a confirmed uptrend",
     color: "var(--accent)",
   },
+  "support-bounce": {
+    label: "Support Bounce",
+    description: "Bounce off key support — buy at confirmed demand zone",
+    color: "var(--accent)",
+  },
 };
 
 interface Props {
