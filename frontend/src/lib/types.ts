@@ -184,7 +184,7 @@ export interface FinalRecommendation {
 
 export interface SupportBouncePlaybook {
   setup_status: "READY" | "NOT_READY" | "BROKEN";
-  entry_trigger: string;
+  entry_trigger: string | null;
   abort_conditions: string[];
   expiry_range: { low: number; high: number } | null;
   not_ready_reason: string | null;

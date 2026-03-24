@@ -409,7 +409,7 @@ async def _node_persist_ticket(state: SupportBounceState, db) -> Dict[str, Any]:
         "key_triggers": llm.get("key_triggers", []),
         "status": "pending",
         "rs_rank_pct": state.rs_indicators.get("rs_rank_pct"),
-        "setup_score": int(synthesized_score.get("total")) if synthesized_score.get("total") is not None else None,
+        "setup_score": int(float(_total)) if (_total := synthesized_score.get("total")) is not None else None,
         "verdict": verdict if verdict in ("Strong Buy", "Buy", "Watch", "Avoid") else None,
         "entry_type": "breakout",   # support-bounce always uses breakout-style entry
         "metadata": metadata,
