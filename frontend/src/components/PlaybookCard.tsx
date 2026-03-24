@@ -155,7 +155,7 @@ function BrokenCard({ stopLoss, currency }: { stopLoss: number; currency: string
 
 // ── Entry Trigger Box (hero element for READY setups) ────────────────────────
 
-function EntryTriggerBox({ trigger }: { trigger: string }) {
+function EntryTriggerBox({ trigger }: { trigger: string | null }) {
   return (
     <div
       className="p-4 rounded"
