@@ -139,24 +139,26 @@ def _empty_result() -> Dict[str, Any]:
 
 def _find_pivot_lows(low: pd.Series, window: int) -> pd.Series:
     """Return pivot low prices (NaN elsewhere). A pivot low is a local minimum."""
-    pivots = pd.Series(index=low.index, dtype=float)
+    result: dict = {}
     arr = low.values
+    idx = low.index
     for i in range(window, len(arr) - window):
         segment = arr[i - window: i + window + 1]
-        if arr[i] == segment.min():
-            pivots.iloc[i] = arr[i]
-    return pivots
+        if arr[i] <= segment.min():
+            result[idx[i]] = arr[i]
+    return pd.Series(result, index=low.index, dtype=float)
 
 
 def _find_pivot_highs(high: pd.Series, window: int) -> pd.Series:
     """Return pivot high prices (NaN elsewhere). A pivot high is a local maximum."""
-    pivots = pd.Series(index=high.index, dtype=float)
+    result: dict = {}
     arr = high.values
+    idx = high.index
     for i in range(window, len(arr) - window):
         segment = arr[i - window: i + window + 1]
-        if arr[i] == segment.max():
-            pivots.iloc[i] = arr[i]
-    return pivots
+        if arr[i] >= segment.max():
+            result[idx[i]] = arr[i]
+    return pd.Series(result, index=high.index, dtype=float)
 
 
 def _cluster_levels(levels: List[float], tolerance_pct: float) -> List[Dict[str, Any]]:
