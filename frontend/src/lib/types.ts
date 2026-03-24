@@ -22,7 +22,7 @@ export interface WatchlistItem {
   notes: string | null;
 }
 
-export type WorkflowType = "technical-swing" | "mean-reversion-bounce";
+export type WorkflowType = "technical-swing" | "mean-reversion-bounce" | "support-bounce";
 
 export interface Candidate {
   id: string;
@@ -180,6 +180,32 @@ export interface FinalRecommendation {
   action: string;
   conviction: "high" | "medium" | "low";
   narrative: string;
+}
+
+export interface SupportBouncePlaybook {
+  setup_status: "READY" | "NOT_READY" | "BROKEN";
+  entry_trigger: string;
+  abort_conditions: string[];
+  expiry_range: { low: number; high: number } | null;
+  not_ready_reason: string | null;
+  check_back_condition: string | null;
+  support_zone: { low: number; high: number; strength: string } | null;
+  resistance_zone: { low: number; high: number } | null;
+  hidden_risks: string[];
+  target_2: number | null;
+  rr_ratio: number | null;
+  // sizing
+  scale_out_plan?: ScaleOutPlanEntry[];
+  // scores
+  synthesized_score?: SynthesizedScore;
+  final_recommendation?: FinalRecommendation;
+  // debug
+  sr_data?: {
+    nearest_support: { price: number; strength: string; touches: number; distance_pct: number } | null;
+    nearest_resistance: { price: number; distance_pct: number } | null;
+    rr_ratio: number | null;
+    support_zones_count: number;
+  };
 }
 
 export interface RsIndicators {
