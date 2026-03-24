@@ -14,7 +14,8 @@ from datetime import datetime, timezone
 import logging
 
 from app.services.indicators import compute_indicators
-from app.services.pre_screen import pre_screen, pre_screen_mean_reversion
+from app.services.pre_screen import pre_screen, pre_screen_mean_reversion, pre_screen_support_bounce
+from app.services.sr_detector import detect_support_resistance_zones
 
 logger = logging.getLogger(__name__)
 
@@ -244,6 +245,15 @@ class ScannerService:
             )
             if mr_result.passed:
                 workflows.append("mean-reversion-bounce")
+
+            # Support-bounce: requires S/R detection first
+            try:
+                sr_data = detect_support_resistance_zones(df_norm, indicators)
+                sb_result = pre_screen_support_bounce(symbol, market, df_norm, indicators, sr_data)
+                if sb_result.passed:
+                    workflows.append("support-bounce")
+            except Exception as e:
+                logger.warning(f"[scanner] support-bounce pre-screen failed for {symbol}: {e}")
 
             # Fallback: if nothing qualifies but the symbol passed RVOL/ATR filters,
             # offer technical-swing as the default so the user can still research it.

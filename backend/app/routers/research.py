@@ -12,16 +12,18 @@ from app.services.workflows.swing_trade import (
     WorkflowError,
 )
 from app.services.workflows.mean_reversion import execute_mean_reversion
+from app.services.workflows.support_bounce import execute_support_bounce
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
-VALID_WORKFLOWS = {"technical-swing", "mean-reversion-bounce"}
+VALID_WORKFLOWS = {"technical-swing", "mean-reversion-bounce", "support-bounce"}
 VALID_MARKETS = {"US", "TASE"}
 
 WORKFLOW_REGISTRY = {
     "technical-swing": execute_swing_trade,
     "mean-reversion-bounce": execute_mean_reversion,
+    "support-bounce": execute_support_bounce,
 }
 
 
