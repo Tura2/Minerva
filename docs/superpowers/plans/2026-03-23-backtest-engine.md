@@ -440,7 +440,7 @@ class Portfolio:
                 self._queue_settlement(pos.shares_remaining * original_stop, day)
                 pos.shares_remaining = 0
                 self._remove_closed(pos)
-                return events
+                return self._return_events(pos, events)
 
             # Trail stop to fill_price (breakeven) — end-of-day update
             pos.stop_loss = pos.fill_price
@@ -456,7 +456,7 @@ class Portfolio:
                     self._queue_settlement(pos.shares_remaining * pos.stop_loss, day)
                     pos.shares_remaining = 0
                     self._remove_closed(pos)
-                    return events
+                    return self._return_events(pos, events)
                 events.append({"type": "T2", "shares": t2_sz, "price": pos.t2, "date": day})
                 self._queue_settlement(t2_sz * pos.t2, day)
                 pos.shares_remaining -= t2_sz
@@ -471,9 +471,9 @@ class Portfolio:
                     self._queue_settlement(pos.shares_remaining * pos.t3, day)
                     pos.shares_remaining = 0
                     self._remove_closed(pos)
-                    return events
+                    return self._return_events(pos, events)
 
-            return events  # T1 only (or T1+T2 without T3)
+            return self._return_events(pos, events)  # T1 only (or T1+T2 without T3)
 
         # ── T1 hit, T2 not yet hit ─────────────────────────────────────────────
         if pos.t1_hit and not pos.t2_hit:
@@ -487,7 +487,7 @@ class Portfolio:
                     self._queue_settlement(pos.shares_remaining * pos.stop_loss, day)
                     pos.shares_remaining = 0
                     self._remove_closed(pos)
-                    return events
+                    return self._return_events(pos, events)
                 events.append({"type": "T2", "shares": t2_sz, "price": pos.t2, "date": day})
                 self._queue_settlement(t2_sz * pos.t2, day)
                 pos.shares_remaining -= t2_sz
@@ -502,8 +502,8 @@ class Portfolio:
                     self._queue_settlement(pos.shares_remaining * pos.t3, day)
                     pos.shares_remaining = 0
                     self._remove_closed(pos)
-                    return events
-                return events
+                    return self._return_events(pos, events)
+                return self._return_events(pos, events)
 
         # ── T1+T2 hit, T3 not yet hit ─────────────────────────────────────────
         if pos.t1_hit and pos.t2_hit and day_high >= pos.t3:
@@ -514,7 +514,7 @@ class Portfolio:
             self._queue_settlement(pos.shares_remaining * pos.t3, day)
             pos.shares_remaining = 0
             self._remove_closed(pos)
-            return events
+            return self._return_events(pos, events)
 
         # ── Stop check (no target hit) ─────────────────────────────────────────
         if pos.shares_remaining > 0 and day_low <= pos.stop_loss:
@@ -526,7 +526,11 @@ class Portfolio:
             pos.shares_remaining = 0
             self._remove_closed(pos)
 
-        pos.exit_events.extend(events)  # accumulate for multi-day P&L summarization
+        return self._return_events(pos, events)
+
+    def _return_events(self, pos: Position, events: list) -> list:
+        """Accumulate events on pos and return them. Use instead of bare `return events`."""
+        pos.exit_events.extend(events)
         return events
 
     def _remove_closed(self, pos: Position) -> None:
@@ -1846,7 +1850,7 @@ def _compute_summary(
     }
 ```
 
-- [ ] **Step 2: Run all existing tests — verify nothing broken**
+- [ ] **Step 4: Run all existing tests — verify nothing broken**
 
 ```bash
 cd backend
@@ -1855,7 +1859,7 @@ python -m pytest tests/backtest/ -v --no-cov
 
 Expected: all previously passing tests still PASS
 
-- [ ] **Step 3: Commit**
+- [ ] **Step 5: Commit**
 
 ```bash
 git add backend/scripts/backtest/simulator.py
@@ -1892,7 +1896,7 @@ logging.basicConfig(
 logger = logging.getLogger("backtest")
 
 
-def parse_args() -> argparse.Namespace:
+def parse_args(args=None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Minerva local backtest — replay 1yr of TASE scans"
     )
@@ -1923,7 +1927,7 @@ def parse_args() -> argparse.Namespace:
         default=str(Path(__file__).parent / "output"),
         help="Directory for output CSV/JSON files",
     )
-    return parser.parse_args()
+    return parser.parse_args(args)
 
 
 def main() -> None:
