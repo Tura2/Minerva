@@ -158,6 +158,11 @@ class ScannerService:
                 # ── Workflow classification (deterministic pre-screen gates) ──────
                 applicable_workflows = self._classify_workflows(df, symbol, market)
 
+                # Skip symbols that don't qualify for any workflow
+                if not applicable_workflows:
+                    rejections.append(f"{symbol}(no_workflow)")
+                    continue
+
                 candidates.append({
                     "symbol": symbol,
                     "market": market,
@@ -230,42 +235,27 @@ class ScannerService:
 
             indicators = compute_indicators(df_norm)
             if not indicators:
-                return ["technical-swing"]
+                return []
 
             workflows: list[str] = []
 
-            swing_result = pre_screen(
-                symbol=symbol, market=market, df=df_norm, indicators=indicators
-            )
-            if swing_result.passed:
-                workflows.append("technical-swing")
-
-            mr_result = pre_screen_mean_reversion(
-                symbol=symbol, market=market, df=df_norm, indicators=indicators
-            )
-            if mr_result.passed:
-                workflows.append("mean-reversion-bounce")
-
-            # Support-bounce: requires S/R detection first
+            # Support-bounce only: requires S/R detection first
             try:
                 sr_data = detect_support_resistance_zones(df_norm, indicators)
                 sb_result = pre_screen_support_bounce(symbol, market, df_norm, indicators, sr_data)
                 if sb_result.passed:
                     workflows.append("support-bounce")
+                else:
+                    logger.debug(
+                        f"[scanner] {symbol} support-bounce pre-screen failed: "
+                        f"{[k for k, v in sb_result.checks.items() if not v]}"
+                    )
             except Exception as e:
-                logger.warning(f"[scanner] support-bounce pre-screen failed for {symbol}: {e}")
+                logger.warning(f"[scanner] support-bounce pre-screen error for {symbol}: {e}")
 
-            # Fallback: if nothing qualifies but the symbol passed RVOL/ATR filters,
-            # offer technical-swing as the default so the user can still research it.
-            if not workflows:
-                workflows = ["technical-swing"]
-
-            logger.debug(
-                f"[scanner] {symbol} applicable_workflows={workflows} "
-                f"(swing={swing_result.passed}, mr={mr_result.passed})"
-            )
+            logger.debug(f"[scanner] {symbol} applicable_workflows={workflows}")
             return workflows
 
         except Exception as e:
             logger.warning(f"[scanner] Workflow classification failed for {symbol}: {e}")
-            return ["technical-swing"]
+            return []
