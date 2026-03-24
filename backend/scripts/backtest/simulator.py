@@ -119,7 +119,7 @@ def _extract_ticket(raw: dict) -> dict | None:
     """Extract and validate required ticket fields from LLM response."""
     if raw is None:
         return None
-    required = ["entry_price", "entry_type", "stop_loss"]
+    required = ["entry_price", "stop_loss"]
     for f in required:
         if raw.get(f) is None:
             logger.warning("LLM ticket missing required field: %s", f)

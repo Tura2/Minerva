@@ -95,7 +95,12 @@ def load_symbols(supabase_url: str, supabase_key: str) -> List[Dict[str, str]]:
     """Load watchlist symbols from Supabase. Fails fast if < 5 symbols."""
     from supabase import create_client
     client = create_client(supabase_url, supabase_key)
-    response = client.table("watchlist_items").select("symbol, market").execute()
+    response = (
+        client.table("watchlist_items")
+        .select("symbol, market")
+        .eq("market", "TASE")
+        .execute()
+    )
     symbols = [{"symbol": r["symbol"], "market": r["market"]} for r in response.data]
     if len(symbols) < 5:
         raise RuntimeError(
